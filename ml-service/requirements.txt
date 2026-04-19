@@ -1,0 +1,28 @@
+# NyayaSetu ML Service — Python dependencies
+# Install: pip install -r requirements.txt
+
+# API framework
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
+# ML — sentence transformers (bi-encoder + cross-encoder)
+sentence-transformers>=2.7.0
+
+# PyTorch CPU (change index URL for GPU builds)
+torch>=2.2.0
+
+# FAISS — fast nearest-neighbour search
+faiss-cpu>=1.8.0
+
+# HuggingFace datasets (for training)
+datasets>=2.19.0
+
+# Whisper ASR
+openai-whisper>=20231117
+tqdm>=4.66.0
+
+# Numerics / serialisation
+numpy>=1.24.0
+scikit-learn>=1.4.0
+joblib>=1.3.0

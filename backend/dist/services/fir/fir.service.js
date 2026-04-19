@@ -1,0 +1,371 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.FIRService = void 0;
+const database_1 = require("../../config/database");
+const ApiError_1 = require("../../utils/ApiError");
+const enums_1 = require("../../generated/prisma/enums");
+const firNumber_1 = require("../../utils/firNumber");
+class FIRService {
+    static async ensureFirNumber(fir, db = database_1.prisma) {
+        if (fir.firNumber) {
+            return fir;
+        }
+        const firNumber = await (0, firNumber_1.generateUniqueFirNumber)(db);
+        const updated = await db.fIR.update({
+            where: { id: fir.id },
+            data: { firNumber },
+            select: { firNumber: true },
+        });
+        return {
+            ...fir,
+            firNumber: updated.firNumber,
+        };
+    }
+    static async createFIR(input) {
+        // Validate victim exists
+        const victim = await database_1.prisma.user.findUnique({
+            where: { id: input.victimId },
+        });
+        if (!victim) {
+            throw new ApiError_1.ApiError(404, "Victim not found");
+        }
+        if (victim.role !== enums_1.Role.VICTIM) {
+            throw new ApiError_1.ApiError(400, "User must be a victim to file an FIR");
+        }
+        // Validate station exists
+        const station = await database_1.prisma.policeStation.findUnique({
+            where: { id: input.stationId },
+        });
+        if (!station) {
+            throw new ApiError_1.ApiError(404, "Police station not found");
+        }
+        const accusedPersonName = input.accusedPersonName?.trim();
+        if (!accusedPersonName) {
+            throw new ApiError_1.ApiError(400, "Name of the person against whom FIR is being lodged is required");
+        }
+        const accusedAddress = input.accusedAddress?.trim();
+        if (!accusedAddress) {
+            throw new ApiError_1.ApiError(400, "Address of the person against whom FIR is being lodged is required");
+        }
+        const assetsDescription = input.assetsDescription?.trim();
+        const incidentDescription = input.incidentDescription?.trim() || "";
+        if (!incidentDescription) {
+            throw new ApiError_1.ApiError(400, "Incident description is required");
+        }
+        const statementPrefix = [
+            `Accused person name: ${accusedPersonName}`,
+            `Accused person address: ${accusedAddress}`,
+        ];
+        if (assetsDescription) {
+            statementPrefix.push(`Assets description: ${assetsDescription}`);
+        }
+        const incidentDescriptionWithAccused = `${statementPrefix.join("\n")}\n\n${incidentDescription}`;
+        // Create FIR
+        const firNumber = await (0, firNumber_1.generateUniqueFirNumber)(database_1.prisma);
+        const fir = await database_1.prisma.fIR.create({
+            data: {
+                firNumber,
+                victimId: input.victimId,
+                stationId: input.stationId,
+                incidentDate: input.incidentDate,
+                incidentTime: input.incidentTime,
+                incidentLocation: input.incidentLocation,
+                incidentDescription: incidentDescriptionWithAccused,
+                urgencyLevel: input.urgencyLevel || enums_1.UrgencyLevel.MEDIUM,
+                status: enums_1.FIRStatus.DRAFT,
+                isOnlineFIR: true,
+                bnsSections: input.bnsSectionIds
+                    ? {
+                        connect: input.bnsSectionIds.map((id) => ({ id })),
+                    }
+                    : undefined,
+            },
+            include: {
+                victim: true,
+                station: true,
+                bnsSections: true,
+            },
+        });
+        return fir;
+    }
+    /**
+     * Officer-generated draft FIR from a voice recording.
+     * Uses the officer's own user record as the FIR owner (victim field)
+     * since this is an officer-initiated draft directly from a voice statement.
+     */
+    static async createOfficerDraftFIR(input) {
+        const officer = await database_1.prisma.user.findUnique({
+            where: { id: input.officerUserId },
+            include: { officer: { include: { station: true } } },
+        });
+        if (!officer) {
+            throw new ApiError_1.ApiError(404, "Officer user not found");
+        }
+        if (!officer.officer) {
+            throw new ApiError_1.ApiError(403, "User does not have an officer profile");
+        }
+        const stationId = input.stationId || officer.officer.stationId;
+        const station = await database_1.prisma.policeStation.findUnique({
+            where: { id: stationId },
+        });
+        if (!station) {
+            throw new ApiError_1.ApiError(404, "Police station not found");
+        }
+        const firNumber = await (0, firNumber_1.generateUniqueFirNumber)(database_1.prisma);
+        const fir = await database_1.prisma.fIR.create({
+            data: {
+                firNumber,
+                // Link the FIR's victim to the officer's own user — acts as a placeholder for officer-generated drafts
+                victimId: input.officerUserId,
+                stationId,
+                officerId: officer.officer.id,
+                incidentDate: input.incidentDate,
+                incidentLocation: input.incidentLocation,
+                incidentDescription: input.incidentDescription,
+                urgencyLevel: input.urgencyLevel || enums_1.UrgencyLevel.MEDIUM,
+                status: enums_1.FIRStatus.DRAFT,
+                isOnlineFIR: false,
+                bnsSections: input.bnsSectionIds?.length
+                    ? { connect: input.bnsSectionIds.map((id) => ({ id })) }
+                    : undefined,
+                // Link voice recording if provided
+                voiceRecordings: input.voiceRecordingId
+                    ? { connect: { id: input.voiceRecordingId } }
+                    : undefined,
+            },
+            include: {
+                victim: { select: { id: true, name: true, phone: true } },
+                officer: {
+                    include: { user: { select: { name: true } }, station: true },
+                },
+                station: true,
+                bnsSections: true,
+                voiceRecordings: {
+                    include: { victimStatement: true },
+                },
+                caseUpdates: true,
+                victimStatements: true,
+            },
+        });
+        return fir;
+    }
+    static async updateFIR(firId, input) {
+        const fir = await database_1.prisma.fIR.findUnique({ where: { id: firId } });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found");
+        }
+        if (fir.status !== enums_1.FIRStatus.DRAFT &&
+            input.status &&
+            input.status !== fir.status) {
+            throw new ApiError_1.ApiError(400, "Can only change status from specific states");
+        }
+        if (fir.isOnlineFIR &&
+            typeof input.incidentDescription === "string" &&
+            input.incidentDescription.trim() !== fir.incidentDescription.trim()) {
+            throw new ApiError_1.ApiError(400, "Online FIR victim statements are read-only and cannot be modified.");
+        }
+        return database_1.prisma.fIR.update({
+            where: { id: firId },
+            data: input,
+            include: {
+                victim: true,
+                officer: true,
+                station: true,
+                bnsSections: true,
+                victimStatements: true,
+                voiceRecordings: true,
+            },
+        });
+    }
+    static async submitFIR(firId, officerId) {
+        const fir = await database_1.prisma.fIR.findUnique({ where: { id: firId } });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found");
+        }
+        if (fir.status !== enums_1.FIRStatus.DRAFT) {
+            throw new ApiError_1.ApiError(400, "Only draft FIRs can be submitted");
+        }
+        const officer = await database_1.prisma.officer.findUnique({
+            where: { id: officerId },
+        });
+        if (!officer) {
+            throw new ApiError_1.ApiError(404, "Officer not found");
+        }
+        const acknowledgmentNo = `ACK-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        const firNumber = fir.firNumber ?? (await (0, firNumber_1.generateUniqueFirNumber)(database_1.prisma));
+        return database_1.prisma.fIR.update({
+            where: { id: firId },
+            data: {
+                status: enums_1.FIRStatus.ACKNOWLEDGED,
+                officerId,
+                acknowledgmentNo,
+                firNumber,
+                officerSignedAt: new Date(),
+            },
+            include: {
+                victim: true,
+                officer: true,
+                station: true,
+                bnsSections: true,
+            },
+        });
+    }
+    static async getFIR(firId) {
+        const fir = await database_1.prisma.fIR.findUnique({
+            where: { id: firId },
+            include: {
+                victim: true,
+                officer: true,
+                station: true,
+                bnsSections: true,
+                victimStatements: true,
+                voiceRecordings: true,
+                evidenceItems: true,
+                caseUpdates: true,
+                smsNotifications: true,
+            },
+        });
+        return fir ? this.ensureFirNumber(fir) : null;
+    }
+    static async getFIRsByVictim(victimId, status) {
+        const where = { victimId };
+        if (status) {
+            where.status = status;
+        }
+        const firs = await database_1.prisma.fIR.findMany({
+            where,
+            include: {
+                officer: true,
+                station: true,
+                bnsSections: true,
+                voiceRecordings: true,
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        return Promise.all(firs.map((fir) => this.ensureFirNumber(fir)));
+    }
+    static async getFIRsByStation(stationId, status) {
+        const where = { stationId };
+        if (status) {
+            where.status = status;
+        }
+        const firs = await database_1.prisma.fIR.findMany({
+            where,
+            include: {
+                victim: true,
+                officer: true,
+                bnsSections: true,
+                voiceRecordings: true,
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        return Promise.all(firs.map((fir) => this.ensureFirNumber(fir)));
+    }
+    static async getFIRsByOfficer(officerId, status) {
+        const where = { officerId };
+        if (status) {
+            where.status = status;
+        }
+        const firs = await database_1.prisma.fIR.findMany({
+            where,
+            include: {
+                victim: true,
+                station: true,
+                bnsSections: true,
+                voiceRecordings: true,
+            },
+            orderBy: { createdAt: "desc" },
+        });
+        return Promise.all(firs.map((fir) => this.ensureFirNumber(fir)));
+    }
+    static async trackFIRByAcknowledgment(acknowledgmentNo) {
+        const fir = await database_1.prisma.fIR.findUnique({
+            where: { acknowledgmentNo },
+            include: {
+                victim: true,
+                officer: true,
+                station: true,
+                bnsSections: true,
+                caseUpdates: true,
+            },
+        });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found with this acknowledgment number");
+        }
+        return this.ensureFirNumber(fir);
+    }
+    static async addCaseUpdate(firId, status, note, updatedById) {
+        const fir = await database_1.prisma.fIR.findUnique({ where: { id: firId } });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found");
+        }
+        return database_1.prisma.caseUpdate.create({
+            data: {
+                firId,
+                status,
+                note,
+                updatedById,
+            },
+        });
+    }
+    static async generateAIFIRSummary(firId, aiGeneratedSummary) {
+        return database_1.prisma.fIR.update({
+            where: { id: firId },
+            data: { aiGeneratedSummary },
+            include: {
+                victim: true,
+                officer: true,
+                station: true,
+                bnsSections: true,
+            },
+        });
+    }
+    static async clearSavedStatements(firId) {
+        const fir = await database_1.prisma.fIR.findUnique({
+            where: { id: firId },
+            include: { victimStatements: true },
+        });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found");
+        }
+        if (fir.isOnlineFIR) {
+            throw new ApiError_1.ApiError(400, "Online FIR statements are read-only and cannot be cleared.");
+        }
+        const deleted = await database_1.prisma.victimStatement.deleteMany({
+            where: { firId },
+        });
+        await database_1.prisma.fIR.update({
+            where: { id: firId },
+            data: { aiGeneratedSummary: null },
+        });
+        return {
+            firId,
+            deletedCount: deleted.count,
+        };
+    }
+    static async deleteFIR(firId) {
+        const fir = await database_1.prisma.fIR.findUnique({ where: { id: firId } });
+        if (!fir) {
+            throw new ApiError_1.ApiError(404, "FIR not found");
+        }
+        await database_1.prisma.$transaction(async (tx) => {
+            await tx.caseUpdate.deleteMany({ where: { firId } });
+            await tx.evidenceItem.deleteMany({ where: { firId } });
+            await tx.sMSNotification.deleteMany({ where: { firId } });
+            await tx.voiceRecording.updateMany({
+                where: { firId },
+                data: { firId: null },
+            });
+            await tx.victimStatement.updateMany({
+                where: { firId },
+                data: {
+                    firId: null,
+                    isUsedForFIR: false,
+                },
+            });
+            await tx.fIR.delete({ where: { id: firId } });
+        });
+        return { firId };
+    }
+}
+exports.FIRService = FIRService;
