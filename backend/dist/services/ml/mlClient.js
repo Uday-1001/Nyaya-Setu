@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.remoteCatalog = exports.remoteClassifyText = exports.remotePipelineAudio = exports.remotePipelineText = void 0;
+exports.remoteBnssCatalog = exports.remoteCatalog = exports.remoteClassifyText = exports.remotePipelineAudio = exports.remotePipelineText = void 0;
 const env_1 = require("../../config/env");
 const normalize_1 = require("./normalize");
 const joinUrl = (base, p) => `${base.replace(/\/$/, "")}${p.startsWith("/") ? p : `/${p}`}`;
@@ -173,3 +173,59 @@ const remoteCatalog = async () => {
     }
 };
 exports.remoteCatalog = remoteCatalog;
+/** Download BNSS catalog rows generated from trained ML artifacts (`GET /v1/bnss-catalog`). */
+const remoteBnssCatalog = async () => {
+    const base = env_1.env.mlServiceUrl;
+    if (!base) {
+        return null;
+    }
+    const { signal, cancel } = withTimeout(env_1.env.mlServiceTimeoutMs);
+    try {
+        const res = await fetch(joinUrl(base, "/v1/bnss-catalog"), {
+            method: "GET",
+            headers: { Accept: "application/json" },
+            signal,
+        });
+        cancel();
+        if (!res.ok) {
+            return null;
+        }
+        const body = (await readJson(res));
+        if (!body || !Array.isArray(body.rows)) {
+            return null;
+        }
+        const out = [];
+        for (const item of body.rows) {
+            if (!item || typeof item !== "object")
+                continue;
+            const row = item;
+            const sectionNumber = typeof row.sectionNumber === "string" ? row.sectionNumber.trim() : "";
+            const sectionTitle = typeof row.sectionTitle === "string" ? row.sectionTitle.trim() : "";
+            const description = typeof row.description === "string" ? row.description.trim() : "";
+            const category = typeof row.category === "string" ? row.category.trim() : "OTHER";
+            if (!sectionNumber || !sectionTitle || !description)
+                continue;
+            out.push({
+                sectionNumber,
+                sectionTitle,
+                description,
+                category,
+                crpcEquivalent: typeof row.crpcEquivalent === "string" ? row.crpcEquivalent : null,
+                crpcTitle: typeof row.crpcTitle === "string" ? row.crpcTitle : null,
+                crpcDescription: typeof row.crpcDescription === "string" ? row.crpcDescription : null,
+                isBailable: typeof row.isBailable === "boolean" ? row.isBailable : false,
+                isCognizable: typeof row.isCognizable === "boolean" ? row.isCognizable : true,
+                isCompoundable: typeof row.isCompoundable === "boolean" ? row.isCompoundable : false,
+                mappingReasoning: typeof row.mappingReasoning === "string"
+                    ? row.mappingReasoning
+                    : null,
+            });
+        }
+        return out;
+    }
+    catch {
+        cancel();
+        return null;
+    }
+};
+exports.remoteBnssCatalog = remoteBnssCatalog;

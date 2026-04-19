@@ -9,16 +9,24 @@ export type StatementPdfInput = {
   classification: AnyRecord | null;
   resolution: AnyRecord | null;
   rights: AnyRecord | null;
+  signatureDataUrl?: string | null;
 };
 
-const PAGE_MARGIN = 40;
+const PAGE_MARGIN = 46;
 const LINE_HEIGHT = 13;
+const PAGE_BOTTOM_SAFE = 72;
 
 const toText = (value: unknown, fallback = "Not provided") => {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (typeof value === "number") return String(value);
   return fallback;
 };
+
+const normalizeInline = (value: unknown) =>
+  String(value ?? "")
+    .replace(/\u00A0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const extractPrefilledMeta = (text: string) => {
   const lines = text
@@ -55,81 +63,195 @@ const stripPrefilledMeta = (text: string) =>
 
 const fmtDate = (value: unknown) => {
   if (!value) return "Not provided";
-  const date = new Date(String(value));
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleString("en-IN", {
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
   });
 };
 
-const addWrappedText = (
-  doc: jsPDF,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight = LINE_HEIGHT,
-) => {
-  const lines = doc.splitTextToSize(text, maxWidth) as string[];
-  lines.forEach((line, i) => {
-    doc.text(line, x, y + i * lineHeight);
-  });
-  return y + Math.max(lines.length, 1) * lineHeight;
+const drawTopTricolor = (doc: jsPDF) => {
+  const width = doc.internal.pageSize.getWidth();
+  doc.setFillColor(255, 153, 51);
+  doc.rect(0, 0, width, 6, "F");
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 6, width, 6, "F");
+  doc.setFillColor(19, 136, 8);
+  doc.rect(0, 12, width, 6, "F");
 };
 
-const ensurePageSpace = (doc: jsPDF, y: number, requiredHeight: number) => {
+const drawHeader = (doc: jsPDF, generatedOn: string) => {
+  const width = doc.internal.pageSize.getWidth();
+  drawTopTricolor(doc);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(21);
+  doc.setTextColor(15, 23, 42);
+  doc.text("NYAYA SETU", PAGE_MARGIN, 44);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  doc.text("First Information Report Document", PAGE_MARGIN, 58);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Generated: ${generatedOn}`, width - PAGE_MARGIN - 170, 44);
+  doc.setFontSize(9);
+  doc.text("Victim Copy", width - PAGE_MARGIN - 170, 58);
+};
+
+const addPage = (
+  doc: jsPDF,
+  y: number,
+  generatedOn: string,
+  requiredHeight = LINE_HEIGHT + 4,
+) => {
   const pageHeight = doc.internal.pageSize.getHeight();
-  if (y + requiredHeight > pageHeight - PAGE_MARGIN) {
+  if (y + requiredHeight > pageHeight - PAGE_BOTTOM_SAFE) {
     doc.addPage();
-    return PAGE_MARGIN + 10;
+    drawHeader(doc, generatedOn);
+    return 98;
   }
   return y;
 };
 
-const sectionTitle = (doc: jsPDF, y: number, title: string) => {
-  y = ensurePageSpace(doc, y, 30);
-  const pageWidth = doc.internal.pageSize.getWidth();
-  doc.setFillColor(15, 23, 42);
-  doc.roundedRect(
-    PAGE_MARGIN,
-    y - 12,
-    pageWidth - PAGE_MARGIN * 2,
-    20,
-    3,
-    3,
-    "F",
-  );
-  doc.setFillColor(234, 88, 12);
-  doc.roundedRect(PAGE_MARGIN, y - 12, 4, 20, 2, 2, "F");
-
-  doc.setTextColor(255, 255, 255);
+const sectionTitle = (
+  doc: jsPDF,
+  y: number,
+  title: string,
+  generatedOn: string,
+) => {
+  y = addPage(doc, y, generatedOn, 24);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.text(title.toUpperCase(), PAGE_MARGIN + 10, y + 1);
-  return y + 20;
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  doc.text(title.toUpperCase(), PAGE_MARGIN, y);
+  return y + 18;
 };
 
-const keyValue = (doc: jsPDF, y: number, key: string, value: string) => {
-  y = ensurePageSpace(doc, y, 26);
-  const pageWidth = doc.internal.pageSize.getWidth();
-  const contentWidth = pageWidth - PAGE_MARGIN * 2;
+const keyValue = (
+  doc: jsPDF,
+  y: number,
+  key: string,
+  value: string,
+  generatedOn: string,
+) => {
+  const width = doc.internal.pageSize.getWidth();
+  y = addPage(doc, y, generatedOn, LINE_HEIGHT + 6);
 
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(PAGE_MARGIN, y - 11, contentWidth, 20, 2, 2, "F");
-
-  doc.setTextColor(100, 116, 139);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.text(key, PAGE_MARGIN + 8, y + 1);
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`${key}:`, PAGE_MARGIN, y);
 
-  doc.setTextColor(30, 41, 59);
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  const valueX = PAGE_MARGIN + 170;
-  const maxWidth = contentWidth - 180;
-  const nextY = addWrappedText(doc, value, valueX, y + 1, maxWidth, 11);
-  return Math.max(nextY + 3, y + 14);
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  const wrapped = doc.splitTextToSize(
+    normalizeInline(value) || "Not provided",
+    width - PAGE_MARGIN - 200,
+  ) as string[];
+  doc.text(wrapped, PAGE_MARGIN + 180, y);
+
+  return y + Math.max(LINE_HEIGHT, wrapped.length * LINE_HEIGHT) + 2;
+};
+
+const paragraphBlock = (
+  doc: jsPDF,
+  y: number,
+  text: string,
+  generatedOn: string,
+) => {
+  const width = doc.internal.pageSize.getWidth();
+  const paragraphs = text
+    .split(/\n+/)
+    .map((p) => p.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+
+  if (!paragraphs.length) {
+    y = addPage(doc, y, generatedOn, 16);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(51, 65, 85);
+    doc.text("No statement text available.", PAGE_MARGIN + 10, y);
+    return y + 14;
+  }
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(51, 65, 85);
+
+  for (const paragraph of paragraphs) {
+    const lines = doc.splitTextToSize(
+      paragraph,
+      width - PAGE_MARGIN * 2 - 10,
+    ) as string[];
+    y = addPage(doc, y, generatedOn, lines.length * LINE_HEIGHT + 6);
+    doc.text(lines, PAGE_MARGIN + 10, y);
+    y += lines.length * LINE_HEIGHT + 6;
+  }
+
+  return y + 2;
+};
+
+const drawVictimSignatureBox = (
+  doc: jsPDF,
+  y: number,
+  generatedOn: string,
+  signatureDataUrl?: string | null,
+) => {
+  const width = doc.internal.pageSize.getWidth();
+  y = addPage(doc, y, generatedOn, 162);
+  y = sectionTitle(doc, y, "Signature Area", generatedOn);
+
+  const boxY = y;
+  const boxW = width - PAGE_MARGIN * 2;
+  const boxH = 116;
+
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.8);
+  doc.rect(PAGE_MARGIN, boxY, boxW, boxH);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text("Victim Signature", PAGE_MARGIN + 14, boxY + 22);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.text("Name:", PAGE_MARGIN + 14, boxY + 90);
+  doc.text("Date:", PAGE_MARGIN + 14, boxY + 108);
+
+  if (signatureDataUrl) {
+    try {
+      const format = signatureDataUrl.includes("image/png") ? "PNG" : "JPEG";
+      doc.addImage(
+        signatureDataUrl,
+        format,
+        PAGE_MARGIN + 14,
+        boxY + 30,
+        140,
+        44,
+      );
+    } catch {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8.5);
+      doc.setTextColor(120, 120, 120);
+      doc.text(
+        "Uploaded signature could not be rendered.",
+        PAGE_MARGIN + 14,
+        boxY + 52,
+      );
+    }
+  } else {
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text("No digital signature uploaded.", PAGE_MARGIN + 14, boxY + 52);
+  }
+
+  return boxY + boxH + 10;
 };
 
 export const downloadStatementReportPdf = ({
@@ -138,9 +260,15 @@ export const downloadStatementReportPdf = ({
   classification,
   resolution,
   rights,
+  signatureDataUrl,
 }: StatementPdfInput) => {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const pageWidth = doc.internal.pageSize.getWidth();
+  const width = doc.internal.pageSize.getWidth();
+  const height = doc.internal.pageSize.getHeight();
+  const generatedOn = new Date().toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
 
   const bnsSection =
     (classification?.bnsSection as AnyRecord | undefined) ?? {};
@@ -160,7 +288,6 @@ export const downloadStatementReportPdf = ({
 
   const extractedMeta = extractPrefilledMeta(rawNarrative);
   const narrativeWithoutMeta = stripPrefilledMeta(rawNarrative);
-
   const statementText =
     toText(narrativeWithoutMeta, "") ||
     toText(statementRecord?.rawText, "") ||
@@ -176,212 +303,212 @@ export const downloadStatementReportPdf = ({
     toText(resolution?.sectionTitle),
   );
   const ipcEquivalent = toText(bnsSection?.ipcEquivalent);
-  const ipcTitle = toText(bnsSection?.ipcTitle);
+  const ipcTitle = toText(bnsSection?.ipcTitle, "");
+  const urgencyReason = toText(classification?.urgencyReason);
 
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pageWidth, 76, "F");
-  doc.setFillColor(234, 88, 12);
-  doc.rect(0, 76, pageWidth, 4, "F");
+  drawHeader(doc, generatedOn);
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(18);
-  doc.setTextColor(255, 255, 255);
-  doc.text("Victim Statement Report", PAGE_MARGIN, 40);
+  let y = 98;
 
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(203, 213, 225);
-  doc.text(
-    "Generated from verified user statement and BNS-IPC mapping",
-    PAGE_MARGIN,
-    58,
-  );
-
-  doc.setTextColor(30, 41, 59);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-
-  let y = 112;
-  y = sectionTitle(doc, y, "Complainant Details");
-  y = keyValue(doc, y, "Full Name", toText(user?.name));
-  y = keyValue(doc, y, "Email", toText(user?.email));
-  y = keyValue(doc, y, "Phone", toText(user?.phone));
-  y = keyValue(doc, y, "Gender", toText(user?.gender));
-  y = keyValue(doc, y, "Preferred Language", toText(user?.language));
-
-  y += 8;
-  y = sectionTitle(doc, y, "Incident Details");
-  y = keyValue(doc, y, "Statement ID", toText(statementRecord?.id));
-  y = keyValue(doc, y, "Recorded At", fmtDate(statementRecord?.createdAt));
-  y = keyValue(doc, y, "Incident Date", fmtDate(statementRecord?.incidentDate));
-  y = keyValue(doc, y, "Incident Time", toText(statementRecord?.incidentTime));
-  y = keyValue(doc, y, "Location", toText(statementRecord?.incidentLocation));
+  y = sectionTitle(doc, y, "Document Metadata", generatedOn);
+  y = keyValue(doc, y, "Document Type", "FIR Legal Draft", generatedOn);
   y = keyValue(
     doc,
     y,
-    "Accused Person Name",
-    toText(extractedMeta.accusedPersonName),
+    "Statement ID",
+    toText(statementRecord?.id),
+    generatedOn,
+  );
+  y = keyValue(doc, y, "Prepared On", generatedOn, generatedOn);
+  y += 14;
+
+  y = sectionTitle(doc, y, "Complainant Information", generatedOn);
+  y = keyValue(doc, y, "Full Name", toText(user?.name), generatedOn);
+  y = keyValue(doc, y, "Email", toText(user?.email), generatedOn);
+  y = keyValue(doc, y, "Phone", toText(user?.phone), generatedOn);
+  y = keyValue(
+    doc,
+    y,
+    "Preferred Language",
+    toText(user?.language),
+    generatedOn,
+  );
+  y += 14;
+
+  y = sectionTitle(doc, y, "Incident Registration Details", generatedOn);
+  y = keyValue(
+    doc,
+    y,
+    "Recorded At",
+    fmtDate(statementRecord?.createdAt),
+    generatedOn,
   );
   y = keyValue(
     doc,
     y,
-    "Accused Person Address",
-    toText(extractedMeta.accusedAddress),
+    "Incident Date",
+    fmtDate(statementRecord?.incidentDate),
+    generatedOn,
   );
   y = keyValue(
     doc,
     y,
-    "Assets Description (If Any)",
-    toText(extractedMeta.assetsDescription),
+    "Incident Time",
+    toText(statementRecord?.incidentTime),
+    generatedOn,
+  );
+  y = keyValue(
+    doc,
+    y,
+    "Location",
+    toText(statementRecord?.incidentLocation),
+    generatedOn,
   );
   y = keyValue(
     doc,
     y,
     "Witness Details",
     toText(statementRecord?.witnessDetails),
+    generatedOn,
   );
+  y += 14;
 
-  y += 8;
-  y = sectionTitle(doc, y, "Statement Narrative");
-  y = ensurePageSpace(doc, y, 80);
-  doc.setFillColor(250, 250, 250);
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(
-    PAGE_MARGIN,
-    y - 10,
-    pageWidth - PAGE_MARGIN * 2,
-    110,
-    3,
-    3,
-    "FD",
+  y = sectionTitle(doc, y, "Accused Person Details", generatedOn);
+  y = keyValue(
+    doc,
+    y,
+    "Name",
+    toText(extractedMeta.accusedPersonName),
+    generatedOn,
   );
-  doc.setTextColor(51, 65, 85);
-  doc.setFontSize(10);
-  y =
-    addWrappedText(
+  y = keyValue(
+    doc,
+    y,
+    "Address",
+    toText(extractedMeta.accusedAddress),
+    generatedOn,
+  );
+  y = keyValue(
+    doc,
+    y,
+    "Assets Description",
+    toText(extractedMeta.assetsDescription),
+    generatedOn,
+  );
+  y += 14;
+
+  y = sectionTitle(doc, y, "Recorded Statement", generatedOn);
+  y = paragraphBlock(doc, y, statementText, generatedOn);
+  y += 10;
+
+  if (classification || resolution) {
+    y = sectionTitle(doc, y, "Preliminary Legal Classification", generatedOn);
+    y = keyValue(
       doc,
-      statementText,
-      PAGE_MARGIN + 10,
-      y + 6,
-      pageWidth - PAGE_MARGIN * 2 - 20,
-      14,
-    ) + 12;
-
-  y += 4;
-  y = sectionTitle(doc, y, "AI Legal Mapping");
-  y = keyValue(doc, y, "Primary BNS Section", `BNS ${bnsNumber} - ${bnsTitle}`);
-  y = keyValue(
-    doc,
-    y,
-    "IPC Equivalent",
-    `IPC ${ipcEquivalent}${ipcTitle !== "Not provided" ? ` - ${ipcTitle}` : ""}`,
-  );
-  y = keyValue(
-    doc,
-    y,
-    "Confidence & Urgency",
-    `${toText(classification?.confidenceScore, "N/A")} | ${toText(classification?.urgencyLevel, "N/A")}`,
-  );
-  y = keyValue(doc, y, "Urgency Reason", toText(classification?.urgencyReason));
-
-  y += 8;
-  y = sectionTitle(doc, y, "Expected Resolution");
-  y = keyValue(doc, y, "Punishment Range", toText(resolution?.punishmentRange));
-  y = keyValue(doc, y, "Fine Range", toText(resolution?.fineRange));
-  y = keyValue(
-    doc,
-    y,
-    "Compensation Note",
-    toText(resolution?.compensationNote),
-  );
-
-  const nextSteps = Array.isArray(resolution?.expectedNextSteps)
-    ? (resolution?.expectedNextSteps as unknown[])
-        .filter(Boolean)
-        .map((x) => String(x))
-    : [];
-
-  if (nextSteps.length > 0) {
-    y = ensurePageSpace(doc, y, 50);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text("Immediate Next Steps", PAGE_MARGIN + 4, y + 4);
-    y += 18;
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(51, 65, 85);
-    nextSteps.forEach((step) => {
-      y = ensurePageSpace(doc, y, 18);
-      y =
-        addWrappedText(
-          doc,
-          `• ${step}`,
-          PAGE_MARGIN + 8,
-          y,
-          pageWidth - PAGE_MARGIN * 2 - 16,
-          12,
-        ) + 2;
-    });
+      y,
+      "Primary BNS Section",
+      `BNS ${bnsNumber} - ${bnsTitle}`,
+      generatedOn,
+    );
+    y = keyValue(
+      doc,
+      y,
+      "IPC Equivalent",
+      ipcTitle ? `IPC ${ipcEquivalent} - ${ipcTitle}` : `IPC ${ipcEquivalent}`,
+      generatedOn,
+    );
+    y = keyValue(
+      doc,
+      y,
+      "Confidence & Urgency",
+      `${toText(classification?.confidenceScore, "N/A")} | ${toText(classification?.urgencyLevel, "N/A")}`,
+      generatedOn,
+    );
+    y = keyValue(doc, y, "Urgency Reason", urgencyReason, generatedOn);
+    y = keyValue(
+      doc,
+      y,
+      "Punishment Range",
+      toText(resolution?.punishmentRange),
+      generatedOn,
+    );
+    y = keyValue(
+      doc,
+      y,
+      "Fine Range",
+      toText(resolution?.fineRange),
+      generatedOn,
+    );
+    y = keyValue(
+      doc,
+      y,
+      "Compensation Note",
+      toText(resolution?.compensationNote),
+      generatedOn,
+    );
+    y += 10;
   }
 
   const rightsList = Array.isArray(rights?.rights)
-    ? (rights?.rights as AnyRecord[]).map((item) => ({
+    ? (rights?.rights as AnyRecord[]).filter(Boolean).map((item) => ({
         title: toText(item?.title),
         detail: toText(item?.detail),
       }))
     : [];
 
   if (rightsList.length > 0) {
-    y += 8;
-    y = sectionTitle(doc, y, "Victim Rights Snapshot");
+    y = sectionTitle(doc, y, "Victim Rights Snapshot", generatedOn);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(51, 65, 85);
+
     rightsList.slice(0, 5).forEach((right) => {
-      y = ensurePageSpace(doc, y, 26);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor(30, 41, 59);
-      y = addWrappedText(
-        doc,
-        `• ${right.title}`,
-        PAGE_MARGIN + 5,
-        y,
-        pageWidth - PAGE_MARGIN * 2 - 10,
-        12,
-      );
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 116, 139);
-      y =
-        addWrappedText(
-          doc,
-          right.detail,
-          PAGE_MARGIN + 18,
-          y + 1,
-          pageWidth - PAGE_MARGIN * 2 - 22,
-          11,
-        ) + 3;
+      y = addPage(doc, y, generatedOn, 22);
+      const titleLine = `- ${right.title}`;
+      const titleLines = doc.splitTextToSize(
+        titleLine,
+        width - PAGE_MARGIN * 2,
+      ) as string[];
+      doc.text(titleLines, PAGE_MARGIN + 8, y);
+      y += titleLines.length * LINE_HEIGHT;
+
+      const detailLines = doc.splitTextToSize(
+        right.detail,
+        width - PAGE_MARGIN * 2 - 20,
+      ) as string[];
+      y = addPage(doc, y, generatedOn, detailLines.length * LINE_HEIGHT + 4);
+      doc.text(detailLines, PAGE_MARGIN + 20, y);
+      y += detailLines.length * LINE_HEIGHT + 4;
     });
   }
+
+  y = drawVictimSignatureBox(doc, y, generatedOn, signatureDataUrl);
 
   const totalPages =
     (
       doc.internal as { getNumberOfPages?: () => number }
     ).getNumberOfPages?.() ?? 1;
+
   for (let page = 1; page <= totalPages; page += 1) {
     doc.setPage(page);
-    const pageHeight = doc.internal.pageSize.getHeight();
+    drawTopTricolor(doc);
+
     doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(100, 116, 139);
+    doc.text("Nyaya Setu Legal Drafting Pipeline", PAGE_MARGIN, height - 30);
+
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      `Generated: ${new Date().toLocaleString("en-IN")}  |  Page ${page} of ${totalPages}`,
+      "Victim copy. Draft support document subject to legal verification by competent authority.",
       PAGE_MARGIN,
-      pageHeight - 18,
+      height - 18,
     );
     doc.text(
-      "Nyaya Setu - Victim Statement Intelligence",
-      pageWidth - PAGE_MARGIN - 180,
-      pageHeight - 18,
+      `Page ${page} of ${totalPages}`,
+      width - PAGE_MARGIN - 45,
+      height - 30,
     );
   }
 
@@ -389,5 +516,6 @@ export const downloadStatementReportPdf = ({
     typeof statementRecord?.id === "string"
       ? statementRecord.id.slice(-8)
       : Date.now().toString();
+
   doc.save(`victim-statement-report-${suffix}.pdf`);
 };

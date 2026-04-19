@@ -104,6 +104,11 @@ const AdminBNSCatalogue = lazy(() =>
     default: m.AdminBNSCatalogue,
   })),
 );
+const AdminBNSSCatalogue = lazy(() =>
+  import("../pages/admin/AdminBNSSCatalogue").then((m) => ({
+    default: m.AdminBNSSCatalogue,
+  })),
+);
 
 const NotFound = lazy(() =>
   import("../pages/NotFound").then((m) => ({ default: m.NotFound })),
@@ -288,44 +293,57 @@ const router = createBrowserRouter([
 
   /* ── Admin portal — layout + nested routes ───────────────────── */
   {
-    path: "/admin",
-    element: (
-      <Suspense fallback={<PageLoader />}>
-        <AdminLayout />
-      </Suspense>
-    ),
+    element: <PrivateRoute allowedRoles={["admin"]} />,
     children: [
       {
-        index: true,
+        path: "/admin",
         element: (
           <Suspense fallback={<PageLoader />}>
-            <AdminHome />
+            <AdminLayout />
           </Suspense>
         ),
-      },
-      {
-        path: "officers",
-        element: (
-          <Suspense fallback={<PageLoader />}>
-            <AdminOfficerPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: "stations",
-        element: (
-          <Suspense fallback={<PageLoader />}>
-            <AdminStationPage />
-          </Suspense>
-        ),
-      },
-      {
-        path: "catalogue",
-        element: (
-          <Suspense fallback={<PageLoader />}>
-            <AdminBNSCatalogue />
-          </Suspense>
-        ),
+        children: [
+          {
+            index: true,
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <AdminHome />
+              </Suspense>
+            ),
+          },
+          {
+            path: "officers",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <AdminOfficerPage />
+              </Suspense>
+            ),
+          },
+          {
+            path: "stations",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <AdminStationPage />
+              </Suspense>
+            ),
+          },
+          {
+            path: "catalogue",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <AdminBNSCatalogue />
+              </Suspense>
+            ),
+          },
+          {
+            path: "bnss-catalogue",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <AdminBNSSCatalogue />
+              </Suspense>
+            ),
+          },
+        ],
       },
     ],
   },

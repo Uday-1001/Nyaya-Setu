@@ -118,12 +118,33 @@ def _ensure_loaded() -> None:
         _load_models()
 
 
+def _ensure_artifacts_loaded() -> None:
+    """Load only persisted artifacts required for catalog export paths."""
+    global _metadata, _corpus
+
+    if _metadata:
+        return
+
+    meta_path = os.path.join(ARTIFACTS_DIR, "metadata.pkl")
+    corpus_path = os.path.join(ARTIFACTS_DIR, "corpus.pkl")
+
+    if not os.path.exists(meta_path):
+        print("[BnsMapper] Artifacts not found — running train_model.py now…")
+        from train_model import train
+        train()
+
+    _metadata = joblib.load(meta_path)
+    _corpus = joblib.load(corpus_path) if os.path.exists(corpus_path) else [
+        m.get("corpus_text", m.get("bns_title", "")) for m in _metadata
+    ]
+
+
 def export_catalog_entries() -> list[dict[str, Any]]:
     """
     Export unique BNS catalog entries from trained artifacts.
     This lets downstream services seed their DB without local hardcoded maps.
     """
-    _ensure_loaded()
+    _ensure_artifacts_loaded()
 
     by_section: dict[str, dict[str, Any]] = {}
     for meta in _metadata:
@@ -160,6 +181,59 @@ def export_catalog_entries() -> list[dict[str, Any]]:
         has_existing_ipc = bool(existing.get("ipcEquivalent"))
         has_candidate_ipc = bool(candidate.get("ipcEquivalent"))
         if has_candidate_ipc and not has_existing_ipc:
+            by_section[sec] = candidate
+            continue
+
+        if len(candidate["description"]) > len(existing.get("description") or ""):
+            by_section[sec] = candidate
+
+    return sorted(by_section.values(), key=lambda x: x["sectionNumber"])
+
+
+def export_bnss_catalog_entries() -> list[dict[str, Any]]:
+    """
+    Export unique BNSS catalog entries mapped against CRPC sections
+    from locally trained CRPC-BNSS artifacts.
+    """
+    _ensure_artifacts_loaded()
+
+    by_section: dict[str, dict[str, Any]] = {}
+    for meta in _metadata:
+        sec = str(meta.get("bns_section") or "").strip()
+        if not sec or sec.lower() in {"none", "n/a", "-"}:
+            continue
+
+        crpc_equivalent = meta.get("crpc_equivalent")
+        if not crpc_equivalent:
+            continue
+
+        title = str(meta.get("bns_title") or f"BNSS Section {sec}").strip()
+        description = str(meta.get("bns_description") or "").strip() or title
+        crpc_title = meta.get("crpc_title")
+        crpc_description = meta.get("crpc_description")
+
+        candidate = {
+            "sectionNumber": sec,
+            "sectionTitle": title,
+            "description": description,
+            "category": "OTHER",
+            "crpcEquivalent": str(crpc_equivalent).strip() if crpc_equivalent else None,
+            "crpcTitle": str(crpc_title).strip() if crpc_title else None,
+            "crpcDescription": str(crpc_description).strip() if crpc_description else None,
+            "isBailable": bool(meta.get("bailable", False)),
+            "isCognizable": bool(meta.get("cognizable", True)),
+            "isCompoundable": False,
+            "mappingReasoning": "Synced from locally extracted CRPC-BNSS mapping artifacts.",
+        }
+
+        existing = by_section.get(sec)
+        if existing is None:
+            by_section[sec] = candidate
+            continue
+
+        has_existing_crpc = bool(existing.get("crpcEquivalent"))
+        has_candidate_crpc = bool(candidate.get("crpcEquivalent"))
+        if has_candidate_crpc and not has_existing_crpc:
             by_section[sec] = candidate
             continue
 

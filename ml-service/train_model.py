@@ -17,6 +17,8 @@ Everything is derived purely from the HuggingFace dataset.
 from __future__ import annotations
 
 import ast
+import csv
+import json
 import os
 import re
 import sys
@@ -26,6 +28,8 @@ import numpy as np
 
 ARTIFACTS_DIR = os.path.join(os.path.dirname(__file__), "artifacts")
 EMBED_MODEL_NAME = "all-MiniLM-L6-v2"
+LOCAL_CRPC_JSONL = os.path.join(ARTIFACTS_DIR, "crpc_bnss_mapped.jsonl")
+LOCAL_CRPC_CSV = os.path.join(ARTIFACTS_DIR, "crpc_bnss_mapped.csv")
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -76,9 +80,10 @@ def _build_corpus_text(
     bns_sec: str,
     bns_head: str,
     bns_desc: str,
-    ipc_sec: str,
-    ipc_head: str,
-    ipc_desc: str,
+    equivalent_sec: str,
+    equivalent_head: str,
+    equivalent_desc: str,
+    equivalent_label: str = "IPC",
 ) -> str:
     """
     Build an enriched natural-language document for a BNS section.
@@ -91,11 +96,43 @@ def _build_corpus_text(
         parts.append(f"Title: {bns_head}.")
     if bns_desc:
         parts.append(f"Description: {_clean(bns_desc)}")
-    if ipc_sec and ipc_head:
-        parts.append(f"IPC equivalent: Section {ipc_sec} — {ipc_head}.")
-    if ipc_desc:
-        parts.append(f"IPC context: {_clean(ipc_desc)}")
+    if equivalent_sec and equivalent_head:
+        parts.append(f"{equivalent_label} equivalent: Section {equivalent_sec} — {equivalent_head}.")
+    if equivalent_desc:
+        parts.append(f"{equivalent_label} context: {_clean(equivalent_desc)}")
     return " ".join(parts)
+
+
+def _load_local_crpc_rows() -> list[dict[str, str]]:
+    """
+    Load optional locally extracted CRPC-BNSS mappings.
+    Expected keys are intentionally the same as IPC-BNS rows so the pipeline
+    can reuse existing parsing logic.
+    """
+    rows: list[dict[str, str]] = []
+
+    if os.path.exists(LOCAL_CRPC_JSONL):
+        with open(LOCAL_CRPC_JSONL, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(obj, dict):
+                    rows.append(obj)
+        return rows
+
+    if os.path.exists(LOCAL_CRPC_CSV):
+        with open(LOCAL_CRPC_CSV, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                rows.append(dict(r))
+        return rows
+
+    return rows
 
 
 # ── main training routine ─────────────────────────────────────────────────────
@@ -132,7 +169,15 @@ def train() -> None:
         bailable  = _detect_bailable(combined)
         cognizable = _detect_cognizable(combined)
 
-        doc = _build_corpus_text(bns_sec, bns_head, bns_desc, ipc_sec, ipc_head, ipc_desc)
+        doc = _build_corpus_text(
+            bns_sec,
+            bns_head,
+            bns_desc,
+            ipc_sec,
+            ipc_head,
+            ipc_desc,
+            equivalent_label="IPC",
+        )
         corpus.append(doc)
         metadata.append({
             "bns_section":     bns_sec,
@@ -146,8 +191,59 @@ def train() -> None:
             "corpus_text":     doc,   # stored so cross-encoder can reuse it without re-loading
         })
 
+    # Optional local CRPC-BNSS mappings (same column keys as IPC-BNS schema).
+    local_rows = _load_local_crpc_rows()
+    local_added = 0
+    local_skipped = 0
+    for data in local_rows:
+        crpc_sec = _clean(str(data.get("IPC Section", "") or ""))
+        crpc_head = _clean(str(data.get("IPC Heading", "") or ""))
+        crpc_desc = _clean(str(data.get("IPC Descriptions", "") or ""))
+        bns_sec = _clean(str(data.get("BNS Section", "") or ""))
+        bns_head = _clean(str(data.get("BNS Heading", "") or ""))
+        bns_desc = _clean(str(data.get("BNS description", "") or ""))
+
+        if not bns_sec or bns_sec.lower() in ("none", "n/a", "-"):
+            local_skipped += 1
+            continue
+
+        combined = f"{bns_head} {bns_desc} {crpc_head} {crpc_desc}"
+        bailable = _detect_bailable(combined)
+        cognizable = _detect_cognizable(combined)
+
+        doc = _build_corpus_text(
+            bns_sec,
+            bns_head,
+            bns_desc,
+            crpc_sec,
+            crpc_head,
+            crpc_desc,
+            equivalent_label="CRPC",
+        )
+        corpus.append(doc)
+        metadata.append({
+            "bns_section": bns_sec,
+            "bns_title": bns_head or f"BNS Section {bns_sec}",
+            "bns_description": bns_desc or "",
+            "ipc_equivalent": None,
+            "ipc_title": None,
+            "ipc_description": "",
+            "crpc_equivalent": crpc_sec if crpc_sec and crpc_sec.lower() != "none" else None,
+            "crpc_title": crpc_head or None,
+            "crpc_description": crpc_desc or "",
+            "bailable": bailable,
+            "cognizable": cognizable,
+            "corpus_text": doc,
+            "mapping_source": "local_crpc_bnss_pdf",
+        })
+        local_added += 1
+
     total = len(corpus)
-    print(f"[Trainer] Parsed {total} valid BNS sections  ({skipped} rows skipped).")
+    print(
+        f"[Trainer] Parsed {total} total rows "
+        f"({len(corpus) - local_added} HF IPC-BNS + {local_added} local CRPC-BNSS). "
+        f"Skipped: HF={skipped}, local={local_skipped}."
+    )
 
     if total == 0:
         print("[Trainer] ERROR: No valid sections found — aborting.", file=sys.stderr)

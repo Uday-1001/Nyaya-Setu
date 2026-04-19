@@ -42,6 +42,20 @@ export type RemoteCatalogSection = {
   mappingReasoning?: string | null;
 };
 
+export type RemoteBnssCatalogSection = {
+  sectionNumber: string;
+  sectionTitle: string;
+  description: string;
+  category: string;
+  crpcEquivalent?: string | null;
+  crpcTitle?: string | null;
+  crpcDescription?: string | null;
+  isBailable?: boolean;
+  isCognizable?: boolean;
+  isCompoundable?: boolean;
+  mappingReasoning?: string | null;
+};
+
 /** Full stack: Whisper → NER → classifier → rights (Python `/v1/pipeline`). */
 export const remotePipelineText = async (
   rawText: string,
@@ -200,6 +214,77 @@ export const remoteCatalog = async (): Promise<
         ipcTitle: typeof row.ipcTitle === "string" ? row.ipcTitle : null,
         ipcDescription:
           typeof row.ipcDescription === "string" ? row.ipcDescription : null,
+        isBailable:
+          typeof row.isBailable === "boolean" ? row.isBailable : false,
+        isCognizable:
+          typeof row.isCognizable === "boolean" ? row.isCognizable : true,
+        isCompoundable:
+          typeof row.isCompoundable === "boolean" ? row.isCompoundable : false,
+        mappingReasoning:
+          typeof row.mappingReasoning === "string"
+            ? row.mappingReasoning
+            : null,
+      });
+    }
+
+    return out;
+  } catch {
+    cancel();
+    return null;
+  }
+};
+
+/** Download BNSS catalog rows generated from trained ML artifacts (`GET /v1/bnss-catalog`). */
+export const remoteBnssCatalog = async (): Promise<
+  RemoteBnssCatalogSection[] | null
+> => {
+  const base = env.mlServiceUrl;
+  if (!base) {
+    return null;
+  }
+
+  const { signal, cancel } = withTimeout(env.mlServiceTimeoutMs);
+  try {
+    const res = await fetch(joinUrl(base, "/v1/bnss-catalog"), {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+    cancel();
+
+    if (!res.ok) {
+      return null;
+    }
+
+    const body = (await readJson(res)) as { rows?: unknown };
+    if (!body || !Array.isArray(body.rows)) {
+      return null;
+    }
+
+    const out: RemoteBnssCatalogSection[] = [];
+    for (const item of body.rows) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const sectionNumber =
+        typeof row.sectionNumber === "string" ? row.sectionNumber.trim() : "";
+      const sectionTitle =
+        typeof row.sectionTitle === "string" ? row.sectionTitle.trim() : "";
+      const description =
+        typeof row.description === "string" ? row.description.trim() : "";
+      const category =
+        typeof row.category === "string" ? row.category.trim() : "OTHER";
+      if (!sectionNumber || !sectionTitle || !description) continue;
+
+      out.push({
+        sectionNumber,
+        sectionTitle,
+        description,
+        category,
+        crpcEquivalent:
+          typeof row.crpcEquivalent === "string" ? row.crpcEquivalent : null,
+        crpcTitle: typeof row.crpcTitle === "string" ? row.crpcTitle : null,
+        crpcDescription:
+          typeof row.crpcDescription === "string" ? row.crpcDescription : null,
         isBailable:
           typeof row.isBailable === "boolean" ? row.isBailable : false,
         isCognizable:

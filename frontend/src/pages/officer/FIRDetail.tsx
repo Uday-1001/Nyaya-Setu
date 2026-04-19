@@ -20,6 +20,11 @@ const badge = (u: string) => {
 export const FIRDetail = () => {
   const { firId } = useParams();
   const navigate = useNavigate();
+  type ConfirmAction =
+    | "clear-statements"
+    | "delete-fir"
+    | "register-online-fir";
+
   const [fir, setFir] = useState<MockFIR | null>(null);
   const [voices, setVoices] = useState<VoiceRec[]>([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +32,9 @@ export const FIRDetail = () => {
   const [clearing, setClearing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [registering, setRegistering] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
+    null,
+  );
 
   const loadData = async (id: string) => {
     const [firData, voiceData] = await Promise.all([
@@ -67,17 +75,8 @@ export const FIRDetail = () => {
     };
   }, [firId]);
 
-  const handleClearSavedStatements = async () => {
+  const executeClearSavedStatements = async () => {
     if (!firId) return;
-    if (fir?.isOnlineFIR) {
-      setError("Online FIR statements are read-only and cannot be deleted.");
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "This will remove previously saved FIR statements linked to this FIR. Continue?",
-    );
-    if (!confirmed) return;
 
     setClearing(true);
     setError(null);
@@ -98,12 +97,8 @@ export const FIRDetail = () => {
     }
   };
 
-  const handleDeleteFIR = async () => {
+  const executeDeleteFIR = async () => {
     if (!firId) return;
-    const confirmed = window.confirm(
-      "This will permanently delete the FIR record. Continue?",
-    );
-    if (!confirmed) return;
 
     setDeleting(true);
     setError(null);
@@ -116,12 +111,8 @@ export const FIRDetail = () => {
     }
   };
 
-  const handleRegisterOnlineFir = async () => {
+  const executeRegisterOnlineFir = async () => {
     if (!firId || !fir) return;
-    const confirmed = window.confirm(
-      "Register this online FIR and send acknowledgment notification to victim?",
-    );
-    if (!confirmed) return;
 
     setRegistering(true);
     setError(null);
@@ -140,6 +131,75 @@ export const FIRDetail = () => {
       setRegistering(false);
     }
   };
+
+  const requestClearSavedStatements = () => {
+    if (fir?.isOnlineFIR) {
+      setError("Online FIR statements are read-only and cannot be deleted.");
+      return;
+    }
+    setConfirmAction("clear-statements");
+  };
+
+  const requestDeleteFIR = () => {
+    setConfirmAction("delete-fir");
+  };
+
+  const requestRegisterOnlineFir = () => {
+    setConfirmAction("register-online-fir");
+  };
+
+  const handleConfirmAction = async () => {
+    if (confirmAction === "clear-statements") {
+      await executeClearSavedStatements();
+      setConfirmAction(null);
+      return;
+    }
+
+    if (confirmAction === "delete-fir") {
+      await executeDeleteFIR();
+      return;
+    }
+
+    if (confirmAction === "register-online-fir") {
+      await executeRegisterOnlineFir();
+      setConfirmAction(null);
+    }
+  };
+
+  const confirmMeta =
+    confirmAction === "clear-statements"
+      ? {
+          title: "Delete Saved Statements?",
+          message:
+            "This will remove previously saved FIR statements linked to this FIR. This action cannot be undone.",
+          actionLabel: clearing ? "Deleting..." : "Delete Statements",
+          actionClass:
+            "border-[#DC2626]/40 bg-[#DC2626]/15 text-[#FCA5A5] hover:bg-[#DC2626]/25",
+          busy: clearing,
+        }
+      : confirmAction === "delete-fir"
+        ? {
+            title: "Delete FIR Record?",
+            message:
+              "This will permanently delete this FIR and associated draft context. This action cannot be undone.",
+            actionLabel: deleting ? "Deleting FIR..." : "Delete FIR",
+            actionClass:
+              "border-[#ef4444]/45 bg-[#ef4444]/15 text-[#fecaca] hover:bg-[#ef4444]/25",
+            busy: deleting,
+          }
+        : confirmAction === "register-online-fir"
+          ? {
+              title: "Register Online FIR?",
+              message:
+                "This will register the FIR and dispatch acknowledgment notification to the victim.",
+              actionLabel: registering
+                ? "Registering..."
+                : "Confirm Registration",
+              actionClass:
+                "border-[#22c55e]/45 bg-[#22c55e]/15 text-[#86efac] hover:bg-[#22c55e]/25",
+              busy: registering,
+            }
+          : null;
 
   return (
     <div>
@@ -177,7 +237,7 @@ export const FIRDetail = () => {
                   whileHover={{ y: -1.5, scale: 1.02 }}
                   whileTap={{ y: 0, scale: 0.98 }}
                   type="button"
-                  onClick={handleRegisterOnlineFir}
+                  onClick={requestRegisterOnlineFir}
                   disabled={registering}
                   className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-[#22c55e]/40 bg-[#22c55e]/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#86efac] hover:bg-[#22c55e]/20 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
@@ -190,7 +250,7 @@ export const FIRDetail = () => {
                 whileHover={{ y: -1.5, scale: 1.02 }}
                 whileTap={{ y: 0, scale: 0.98 }}
                 type="button"
-                onClick={handleClearSavedStatements}
+                onClick={requestClearSavedStatements}
                 disabled={clearing || fir.isOnlineFIR}
                 className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-[#DC2626]/40 bg-[#DC2626]/10 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#FCA5A5] hover:bg-[#DC2626]/20 disabled:opacity-60 disabled:cursor-not-allowed"
                 title={
@@ -210,7 +270,7 @@ export const FIRDetail = () => {
                 whileHover={{ y: -1.5, scale: 1.02 }}
                 whileTap={{ y: 0, scale: 0.98 }}
                 type="button"
-                onClick={handleDeleteFIR}
+                onClick={requestDeleteFIR}
                 disabled={deleting}
                 className="inline-flex min-h-[34px] items-center gap-1.5 rounded-lg border border-[#ef4444]/50 bg-[#ef4444]/15 px-3 py-1.5 text-[10px] font-extrabold uppercase tracking-wide text-[#fecaca] hover:bg-[#ef4444]/25 disabled:opacity-60 disabled:cursor-not-allowed"
               >
@@ -228,6 +288,41 @@ export const FIRDetail = () => {
             format
           </p>
           <DocumentGenerator fir={fir} />
+
+          {confirmMeta && (
+            <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/45 backdrop-blur-[2px] p-4">
+              <div className="w-full max-w-lg rounded-2xl border border-white/[0.12] bg-[#0b0f18]/95 p-5 shadow-[0_24px_60px_rgba(0,0,0,0.55)]">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.16em] text-[#FDBA74]">
+                  Officer Confirmation
+                </p>
+                <h3 className="mt-2 text-lg font-bold text-white">
+                  {confirmMeta.title}
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-[#9CA3AF]">
+                  {confirmMeta.message}
+                </p>
+
+                <div className="mt-5 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmAction(null)}
+                    disabled={confirmMeta.busy}
+                    className="rounded-lg border border-white/[0.14] bg-white/[0.03] px-4 py-2 text-xs font-bold uppercase tracking-[0.1em] text-[#9CA3AF] hover:text-white disabled:opacity-60"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmAction()}
+                    disabled={confirmMeta.busy}
+                    className={`rounded-lg border px-4 py-2 text-xs font-extrabold uppercase tracking-[0.1em] disabled:opacity-60 ${confirmMeta.actionClass}`}
+                  >
+                    {confirmMeta.actionLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : null}
     </div>

@@ -114,6 +114,10 @@ export const AdminLayout = () => {
             <BookOpen className="w-4 h-4 shrink-0" strokeWidth={2} />
             BNS Catalog
           </NavLink>
+          <NavLink to="/admin/bnss-catalogue" className={navCls}>
+            <BookOpen className="w-4 h-4 shrink-0" strokeWidth={2} />
+            BNSS Catalog
+          </NavLink>
         </nav>
 
         <div className="p-4 border-t border-white/[0.08] space-y-2">

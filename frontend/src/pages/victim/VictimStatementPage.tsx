@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -83,6 +90,10 @@ export const VictimStatementPage = () => {
   const [analysis, setAnalysis] = useState<AnalysisBundle | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [signatureFileName, setSignatureFileName] = useState<string | null>(
+    null,
+  );
   const [refreshingWorkspace, setRefreshingWorkspace] = useState(false);
   const [stations, setStations] = useState<VictimStation[]>([]);
   const [stationsLoading, setStationsLoading] = useState(false);
@@ -93,6 +104,7 @@ export const VictimStatementPage = () => {
   const [sendingToStation, setSendingToStation] = useState(false);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const stationPickerRef = useRef<HTMLDivElement | null>(null);
+  const signatureInputRef = useRef<HTMLInputElement | null>(null);
   const textSubmitDisabled =
     saving ||
     isLoading ||
@@ -293,6 +305,7 @@ export const VictimStatementPage = () => {
         classification: classificationData,
         resolution: resolutionData,
         rights: rightsData,
+        signatureDataUrl,
       });
     } catch (e: unknown) {
       const msg =
@@ -301,6 +314,44 @@ export const VictimStatementPage = () => {
       setPageError(String(msg));
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const handleSignatureFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      setPageError("Please upload a valid image file for digital signature.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      setPageError("Signature image must be smaller than 3 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setSignatureDataUrl(reader.result);
+        setSignatureFileName(file.name);
+        setPageError(null);
+      }
+    };
+    reader.onerror = () => {
+      setPageError("Unable to read signature image. Please try another file.");
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const clearSignature = () => {
+    setSignatureDataUrl(null);
+    setSignatureFileName(null);
+    if (signatureInputRef.current) {
+      signatureInputRef.current.value = "";
     }
   };
 
@@ -986,6 +1037,75 @@ export const VictimStatementPage = () => {
                 alignItems: "flex-end",
               }}
             >
+              <input
+                ref={signatureInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleSignatureFileChange}
+                style={{ display: "none" }}
+              />
+              <button
+                type="button"
+                onClick={() => signatureInputRef.current?.click()}
+                disabled={pdfLoading || saving || isLoading || analysisLoading}
+                style={{
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#e2e8f0",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: 12,
+                  padding: "12px 16px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor:
+                    pdfLoading || saving || isLoading || analysisLoading
+                      ? "not-allowed"
+                      : "pointer",
+                  opacity:
+                    pdfLoading || saving || isLoading || analysisLoading
+                      ? 0.6
+                      : 1,
+                }}
+              >
+                Upload Signature Photo
+              </button>
+
+              {signatureDataUrl && (
+                <button
+                  type="button"
+                  onClick={clearSignature}
+                  style={{
+                    background: "rgba(239,68,68,0.12)",
+                    color: "#fecaca",
+                    border: "1px solid rgba(239,68,68,0.35)",
+                    borderRadius: 12,
+                    padding: "12px 14px",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  Remove Signature
+                </button>
+              )}
+
+              {signatureFileName && (
+                <div
+                  style={{
+                    color: "#86efac",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    maxWidth: 220,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    alignSelf: "center",
+                  }}
+                  title={signatureFileName}
+                >
+                  Signature: {signatureFileName}
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleDownloadPdf}

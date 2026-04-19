@@ -8,6 +8,42 @@ type Phase = "idle" | "loading" | "done";
 
 const PDF_MARGIN = 50;
 const LINE_H = 14;
+const PAGE_BOTTOM_SAFE = 72;
+
+const normalizeInlineText = (value: string) =>
+  value
+    .replace(/\s+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
+
+const isPendingMapping = (value: string | undefined | null) => {
+  const normalized = normalizeInlineText(String(value ?? "")).toLowerCase();
+  return (
+    !normalized ||
+    normalized.includes("pending") ||
+    normalized.includes("manual legal review") ||
+    normalized.includes("not determined")
+  );
+};
+
+const getClauseDisplay = (sectionNumber: string, sectionTitle: string) => {
+  const pending =
+    isPendingMapping(sectionNumber) ||
+    isPendingMapping(sectionTitle) ||
+    normalizeInlineText(sectionNumber) === "0";
+
+  if (pending) {
+    return {
+      clauseLabel: "BNSS Clause",
+      clauseValue: "Not Determined (Manual Legal Review Required)",
+    };
+  }
+
+  return {
+    clauseLabel: "BNSS Clause",
+    clauseValue: `Section ${normalizeInlineText(sectionNumber)}`,
+  };
+};
 
 const normalizeFirNumber = (value: string) =>
   /^\d{7}$/.test(value) ? value : (value.match(/\d{7}/)?.[0] ?? value);
@@ -46,137 +82,127 @@ const stripPrefilledMeta = (text: string) =>
     .trim();
 
 /* ── PDF helpers ────────── */
-const drawPageDecoration = (doc: jsPDF) => {
+const drawTopTricolor = (doc: jsPDF) => {
   const pw = doc.internal.pageSize.getWidth();
-  const ph = doc.internal.pageSize.getHeight();
 
-  drawPageBorder(doc);
-
-  const docAny = doc as any;
-  const canUseGState =
-    typeof docAny.GState === "function" &&
-    typeof docAny.setGState === "function";
-
-  try {
-    if (canUseGState) {
-      docAny.setGState(new docAny.GState({ opacity: 0.05 }));
-    }
-    doc.setTextColor(148, 163, 184);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(42);
-    doc.text("NYAYA SETU", pw / 2 - 145, ph / 2 - 20, { angle: 45 } as any);
-    doc.setFontSize(24);
-    doc.text("OFFICIAL", pw / 2 - 70, ph / 2 + 70, { angle: 45 } as any);
-  } catch {
-    doc.setTextColor(203, 213, 225);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(26);
-    doc.text("NYAYA SETU OFFICIAL", pw / 2 - 130, ph / 2);
-  } finally {
-    if (canUseGState) {
-      docAny.setGState(new docAny.GState({ opacity: 1 }));
-    }
-  }
+  doc.setFillColor(255, 153, 51);
+  doc.rect(0, 0, pw, 6, "F");
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 6, pw, 6, "F");
+  doc.setFillColor(19, 136, 8);
+  doc.rect(0, 12, pw, 6, "F");
 };
 
-const addPage = (doc: jsPDF, y: number, needed = LINE_H + 4): number => {
+const drawPageHeader = (doc: jsPDF, generatedOn: string) => {
+  const pw = doc.internal.pageSize.getWidth();
+  drawTopTricolor(doc);
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(21);
+  doc.setTextColor(15, 23, 42);
+  doc.text("NYAYA SETU", PDF_MARGIN, 44);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10.5);
+  doc.text("First Information Report Document", PDF_MARGIN, 58);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(51, 65, 85);
+  doc.text(`Generated: ${generatedOn}`, pw - PDF_MARGIN - 170, 44);
+
+  doc.setFontSize(9);
+  doc.text(
+    "Digital Draft - For official review and authentication",
+    pw - PDF_MARGIN - 220,
+    58,
+  );
+};
+
+const addPage = (
+  doc: jsPDF,
+  y: number,
+  generatedOn: string,
+  needed = LINE_H + 4,
+): number => {
   const ph = doc.internal.pageSize.getHeight();
-  if (y + needed > ph - PDF_MARGIN) {
+  if (y + needed > ph - PAGE_BOTTOM_SAFE) {
     doc.addPage();
-    drawPageDecoration(doc);
-    return PDF_MARGIN + 30;
+    drawPageHeader(doc, generatedOn);
+    return 98;
   }
   return y;
 };
 
-const drawPageBorder = (doc: jsPDF) => {
-  const pw = doc.internal.pageSize.getWidth();
-  const ph = doc.internal.pageSize.getHeight();
-  doc.setDrawColor(220, 224, 232); // Slate 200
-  doc.setLineWidth(1);
-  doc.rect(20, 20, pw - 40, ph - 40);
-  doc.setDrawColor(234, 88, 12); // Orange 600 accent
-  doc.setLineWidth(2);
-  doc.line(20, 20, 100, 20); // Top left accent
-  doc.line(20, 20, 20, 100);
+const sectionTitle = (
+  doc: jsPDF,
+  y: number,
+  title: string,
+  generatedOn: string,
+) => {
+  y = addPage(doc, y, generatedOn, 24);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(15, 23, 42);
+  doc.text(title.toUpperCase(), PDF_MARGIN, y);
+  return y + 18;
 };
 
-const sectionHeader = (doc: jsPDF, text: string, y: number): number => {
+const keyValue = (
+  doc: jsPDF,
+  y: number,
+  label: string,
+  value: string,
+  generatedOn: string,
+): number => {
   const pw = doc.internal.pageSize.getWidth();
-  y = addPage(doc, y, 35);
-  doc.setFillColor(15, 23, 42); // Slate 900
-  doc.rect(PDF_MARGIN, y, pw - PDF_MARGIN * 2, 22, "F");
-  // Accent bar
-  doc.setFillColor(234, 88, 12); // Orange 600
-  doc.rect(PDF_MARGIN, y, 4, 22, "F");
+  y = addPage(doc, y, generatedOn, LINE_H + 6);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(255, 255, 255);
-  doc.text(text.toUpperCase(), PDF_MARGIN + 12, y + 15);
-  return y + 34;
-};
-
-const labelValue = (
-  doc: jsPDF,
-  label: string,
-  value: string,
-  y: number,
-  lw = 140,
-  isStripe = false,
-): number => {
-  const pw = doc.internal.pageSize.getWidth();
-  y = addPage(doc, y, LINE_H + 6);
-
-  if (isStripe) {
-    doc.setFillColor(248, 250, 252);
-    doc.rect(PDF_MARGIN, y - 10, pw - PDF_MARGIN * 2, LINE_H + 8, "F");
-  }
-
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9.5);
   doc.setTextColor(100, 116, 139);
-  doc.text(`${label}`, PDF_MARGIN + 5, y);
+  doc.text(`${label}:`, PDF_MARGIN, y);
+
   doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
   doc.setTextColor(30, 41, 59);
+  const normalizedValue = value?.trim() ? value : "Not provided";
   const wrapped = doc.splitTextToSize(
-    value,
-    pw - PDF_MARGIN * 2 - lw - 10,
+    normalizedValue,
+    pw - PDF_MARGIN - 200,
   ) as string[];
-  doc.text(wrapped, PDF_MARGIN + lw, y);
+  doc.text(wrapped, PDF_MARGIN + 180, y);
+
   return y + Math.max(LINE_H, wrapped.length * LINE_H) + 2;
 };
 
-const textBlock = (doc: jsPDF, text: string, y: number): number => {
+const paragraphBlock = (
+  doc: jsPDF,
+  text: string,
+  y: number,
+  generatedOn: string,
+): number => {
   const pw = doc.internal.pageSize.getWidth();
-  const contentW = pw - PDF_MARGIN * 2;
-  const innerW = contentW - 20;
-  const lines = doc.splitTextToSize(text.trim(), innerW) as string[];
-  const blockH = lines.length * LINE_H + 20;
-
-  y = addPage(doc, y, blockH);
-
-  doc.setFillColor(248, 250, 252);
-  doc.setDrawColor(203, 213, 225);
-  doc.setLineWidth(0.5);
-  doc.rect(PDF_MARGIN, y, contentW, blockH, "FD");
-
-  // Quote mark accent
-  doc.setFont("times", "bold");
-  doc.setFontSize(30);
-  doc.setTextColor(226, 232, 240);
-  doc.text('"', PDF_MARGIN + 8, y + 26);
+  const source = text.trim() || "Statement pending.";
+  const paragraphs = source
+    .split(/\n+/)
+    .map((paragraph) => paragraph.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(51, 65, 85);
-  let ty = y + 16;
-  for (const line of lines) {
-    ty = addPage(doc, ty);
-    doc.text(line, PDF_MARGIN + 12, ty);
-    ty += LINE_H;
+
+  for (const paragraph of paragraphs) {
+    const lines = doc.splitTextToSize(
+      paragraph,
+      pw - PDF_MARGIN * 2 - 10,
+    ) as string[];
+    y = addPage(doc, y, generatedOn, lines.length * LINE_H + 6);
+    doc.text(lines, PDF_MARGIN + 10, y);
+    y += lines.length * LINE_H + 6;
   }
-  return Math.max(ty, y + blockH) + 14;
+
+  return y + 2;
 };
 
 /* ── PDF generation ────────────────────────────────────────────────── */
@@ -184,6 +210,10 @@ const buildFirPdf = (fir: MockFIR) => {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
   const pw = doc.internal.pageSize.getWidth();
   const normalizedFirNumber = normalizeFirNumber(fir.firNo);
+  const generatedOn = new Date().toLocaleString("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
   const statementSource =
     fir.statementHistory?.[0]?.text?.trim() ||
     fir.statement ||
@@ -194,446 +224,152 @@ const buildFirPdf = (fir: MockFIR) => {
     stripPrefilledMeta(statementSource) || statementSource;
   const ph = doc.internal.pageSize.getHeight();
 
-  // Draw Header Letterhead
-  doc.setFillColor(15, 23, 42);
-  doc.rect(0, 0, pw, 80, "F");
-  // Gradient/Accent bottom of header
-  doc.setFillColor(234, 88, 12);
-  doc.rect(0, 80, pw, 4, "F");
+  drawPageHeader(doc, generatedOn);
 
-  // Seal / Emblem Placeholder
-  doc.setDrawColor(255, 255, 255);
-  doc.circle(PDF_MARGIN + 15, 40, 18, "S");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(14);
-  doc.setTextColor(255, 255, 255);
-  doc.text("A I", PDF_MARGIN + 5, 45);
+  let y = 98;
 
-  doc.setFontSize(22);
-  doc.text("NYAYA SETU", PDF_MARGIN + 45, 38);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(148, 163, 184);
-  doc.text(
-    "Official First Information Report (Digital Gen)",
-    PDF_MARGIN + 47,
-    52,
-  );
-  doc.text("Government of India Initiative", PDF_MARGIN + 47, 64);
+  y = sectionTitle(doc, y, "Document Metadata", generatedOn);
+  y = keyValue(doc, y, "Document Type", "FIR Legal Draft", generatedOn);
+  y = keyValue(doc, y, "Document Number", normalizedFirNumber, generatedOn);
+  y = keyValue(doc, y, "Prepared On", generatedOn, generatedOn);
+  y += 14;
 
-  doc.setFontSize(9);
-  doc.setTextColor(255, 255, 255);
-  doc.text(
-    `Generated: ${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`,
-    pw - PDF_MARGIN - 130,
-    48,
-  );
-
-  // Draw border + watermark before body content to prevent overlaying the text later.
-  drawPageDecoration(doc);
-
-  let y = 120;
-
-  // FIR Details Table
-  y = sectionHeader(doc, "Incident Registration Details", y);
-  y = labelValue(
+  y = sectionTitle(doc, y, "Incident Registration Details", generatedOn);
+  y = keyValue(
     doc,
+    y,
     "FIR Reference Number",
     normalizedFirNumber,
-    y,
-    160,
-    true,
+    generatedOn,
   );
-  y = labelValue(doc, "Current Status", fir.status, y, 160, false);
-  y = labelValue(doc, "Priority Level", fir.urgency, y, 160, true);
-  y = labelValue(doc, "Date / Time Received", fir.received, y, 160, false);
-  y = labelValue(doc, "Date of Incident", fir.incidentDate, y, 160, true);
-  y = labelValue(doc, "Location of Incident", fir.location, y, 160, false);
-  y = labelValue(
+  y = keyValue(doc, y, "Current Status", fir.status, generatedOn);
+  y = keyValue(doc, y, "Priority Level", fir.urgency, generatedOn);
+  y = keyValue(doc, y, "Date / Time Received", fir.received, generatedOn);
+  y = keyValue(doc, y, "Date of Incident", fir.incidentDate, generatedOn);
+  y = keyValue(doc, y, "Location of Incident", fir.location, generatedOn);
+  y += 14;
+
+  y = sectionTitle(doc, y, "Complainant Information", generatedOn);
+  y = keyValue(doc, y, "Full Name", fir.victimName, generatedOn);
+  y = keyValue(doc, y, "Contact Number", fir.victimPhone, generatedOn);
+  y += 14;
+
+  y = sectionTitle(doc, y, "Accused Person Details", generatedOn);
+  y = keyValue(doc, y, "Name", extractedMeta.accusedPersonName, generatedOn);
+  y = keyValue(doc, y, "Address", extractedMeta.accusedAddress, generatedOn);
+  y = keyValue(
     doc,
-    "Accused Person Name",
-    extractedMeta.accusedPersonName,
     y,
-    160,
-    true,
-  );
-  y = labelValue(
-    doc,
-    "Accused Person Address",
-    extractedMeta.accusedAddress,
-    y,
-    160,
-    false,
-  );
-  y = labelValue(
-    doc,
-    "Assets Description (If Any)",
+    "Assets Description",
     extractedMeta.assetsDescription,
-    y,
-    160,
-    true,
+    generatedOn,
   );
-  y += 15;
+  y += 14;
 
-  // Victim
-  y = sectionHeader(doc, "Complainant Information", y);
-  y = labelValue(doc, "Full Name", fir.victimName, y, 160, true);
-  y = labelValue(doc, "Contact No", fir.victimPhone, y, 160, false);
-  y += 15;
+  y = sectionTitle(doc, y, "Recorded Statement", generatedOn);
+  y = paragraphBlock(doc, statementSourceClean, y, generatedOn);
+  y += 10;
 
-  // Statement
-  y = sectionHeader(doc, "Recorded Statement", y);
-  doc.setFont("helvetica", "italic");
-  doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184);
-  doc.text("Voice-to-text transcript generated by AI pipeline.", PDF_MARGIN, y);
-  y += 18;
-  y = textBlock(doc, statementSourceClean, y);
-
-  // AI Summary
   if (fir.aiSummaryDefault) {
-    y = sectionHeader(doc, "Executive Summary (AI)", y);
-    y = textBlock(doc, fir.aiSummaryDefault, y);
+    y = sectionTitle(doc, y, "Executive Summary", generatedOn);
+    y = paragraphBlock(doc, fir.aiSummaryDefault, y, generatedOn);
+    y += 10;
   }
 
-  // BNS / IPC Sections (from model)
+  y = sectionTitle(doc, y, "Preliminary Legal Classification", generatedOn);
   if (fir.sectionMappings && fir.sectionMappings.length > 0) {
-    y = sectionHeader(
-      doc,
-      `Legal Mapping By AI [${fir.sectionMappings.length} Identified Clause${fir.sectionMappings.length > 1 ? "s" : ""}]`,
-      y,
-    );
-
-    for (let i = 0; i < fir.sectionMappings.length; i++) {
+    for (let i = 0; i < fir.sectionMappings.length; i += 1) {
       const sec = fir.sectionMappings[i];
-      const pendingDesc = sec.description
-        ? (doc.splitTextToSize(
-            sec.description,
-            pw - PDF_MARGIN * 2 - 24,
-          ) as string[])
-        : [];
-      const pendingReason = sec.reasoning
-        ? (doc.splitTextToSize(
-            `Rationale: ${sec.reasoning}`,
-            pw - PDF_MARGIN * 2 - 24,
-          ) as string[])
-        : [];
+      const clause = getClauseDisplay(sec.sectionNumber, sec.sectionTitle);
+      const clauseTitle =
+        normalizeInlineText(sec.sectionTitle) || "Manual legal review required";
+      const ipcValue = sec.ipcEquivalent
+        ? `Section ${normalizeInlineText(sec.ipcEquivalent)}${sec.ipcTitle ? ` - ${normalizeInlineText(sec.ipcTitle)}` : ""}`
+        : "Not available";
+      const nature = sec.cognizable ? "Cognizable" : "Non-Cognizable";
+      const bail = sec.bailable ? "Bailable" : "Non-Bailable";
+      const reasoning = normalizeInlineText(
+        sec.reasoning ||
+          "Automated pipeline requires manual legal validation for final determination.",
+      );
 
-      let firstChunk = true;
-      while (firstChunk || pendingDesc.length > 0 || pendingReason.length > 0) {
-        const showIpc = firstChunk && Boolean(sec.ipcEquivalent);
-        const needsReason = pendingReason.length > 0;
+      y = addPage(doc, y, generatedOn, 78);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(`Clause ${i + 1}`, PDF_MARGIN, y);
+      y += 14;
 
-        const fixedHeight =
-          84 +
-          (showIpc ? LINE_H + 4 : 0) +
-          (pendingDesc.length > 0 ? 4 : 0) +
-          (needsReason ? 8 : 0);
-
-        y = addPage(doc, y, fixedHeight + LINE_H * 2);
-
-        const availableHeight = ph - PDF_MARGIN - y - 14;
-        const lineBudget = Math.max(
-          2,
-          Math.floor((availableHeight - fixedHeight) / LINE_H),
-        );
-
-        const descTake = Math.min(pendingDesc.length, lineBudget);
-        const descLines = pendingDesc.splice(0, descTake);
-        const reasonTake = Math.min(
-          pendingReason.length,
-          Math.max(0, lineBudget - descLines.length),
-        );
-        const rLines = pendingReason.splice(0, reasonTake);
-
-        const cardH =
-          84 +
-          (showIpc ? LINE_H + 4 : 0) +
-          descLines.length * LINE_H +
-          (descLines.length > 0 ? 4 : 0) +
-          (rLines.length > 0 ? 8 + rLines.length * LINE_H : 0) +
-          10;
-
-        y = addPage(doc, y, cardH + 2);
-        const cardY = y;
-
-        const isNonBailable = !sec.bailable;
-
-        // Shadow
-        doc.setFillColor(226, 232, 240);
-        doc.roundedRect(
-          PDF_MARGIN + 3,
-          cardY + 3,
-          pw - PDF_MARGIN * 2,
-          cardH,
-          4,
-          4,
-          "F",
-        );
-
-        // Card background
-        doc.setFillColor(255, 255, 255);
-        doc.setDrawColor(
-          isNonBailable ? 239 : 203,
-          isNonBailable ? 68 : 213,
-          isNonBailable ? 68 : 225,
-        );
-        doc.setLineWidth(1);
-        doc.roundedRect(
-          PDF_MARGIN,
-          cardY,
-          pw - PDF_MARGIN * 2,
-          cardH,
-          4,
-          4,
-          "FD",
-        );
-
-        // Top colored bar
-        doc.setFillColor(
-          isNonBailable ? 239 : 15,
-          isNonBailable ? 68 : 23,
-          isNonBailable ? 68 : 42,
-        );
-        try {
-          doc.roundedRect(
-            PDF_MARGIN,
-            cardY,
-            pw - PDF_MARGIN * 2,
-            28,
-            4,
-            4,
-            "F",
-          );
-          doc.rect(PDF_MARGIN, cardY + 14, pw - PDF_MARGIN * 2, 14, "F");
-        } catch {
-          doc.rect(PDF_MARGIN, cardY, pw - PDF_MARGIN * 2, 28, "F");
-        }
-
-        let ry = cardY + 18;
-
-        // Title & BNS Number Inside Top Bar
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11);
-        doc.setTextColor(255, 255, 255);
-        doc.text(`BNS §${sec.sectionNumber}`, PDF_MARGIN + 12, ry);
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
-        const titleBase =
-          sec.sectionTitle.length > 50
-            ? `${sec.sectionTitle.substring(0, 47)}...`
-            : sec.sectionTitle;
-        const titleWithChunk = firstChunk ? titleBase : `${titleBase} (cont.)`;
-        doc.text(`|  ${titleWithChunk}`, PDF_MARGIN + 75, ry);
-
-        ry += 24;
-
-        // Badges
-        const cogColor: [number, number, number] = sec.cognizable
-          ? [220, 38, 38]
-          : [100, 116, 139];
-        const bailColor: [number, number, number] = sec.bailable
-          ? [22, 163, 74]
-          : [220, 38, 38];
-
-        doc.setFontSize(8);
-        doc.setFont("helvetica", "bold");
-        doc.setFillColor(...cogColor);
-        doc.roundedRect(PDF_MARGIN + 12, ry - 10, 85, 14, 2, 2, "F");
-        doc.setTextColor(255);
-        doc.text(
-          sec.cognizable ? "COGNIZABLE" : "NON-COGNIZABLE",
-          PDF_MARGIN + 16,
-          ry,
-        );
-
-        doc.setFillColor(...bailColor);
-        doc.roundedRect(PDF_MARGIN + 105, ry - 10, 85, 14, 2, 2, "F");
-        doc.text(
-          sec.bailable ? "BAILABLE" : "NON-BAILABLE",
-          PDF_MARGIN + 109,
-          ry,
-        );
-
-        ry += 18;
-
-        if (showIpc) {
-          doc.setFont("helvetica", "bold");
-          doc.setFontSize(9.5);
-          doc.setTextColor(71, 85, 105);
-          doc.text(
-            `IPC Equivalent: §${sec.ipcEquivalent}${sec.ipcTitle ? `  —  ${sec.ipcTitle}` : ""}`,
-            PDF_MARGIN + 12,
-            ry,
-          );
-          ry += LINE_H + 4;
-        }
-
-        if (descLines.length > 0) {
-          doc.setFont("helvetica", "normal");
-          doc.setFontSize(9.5);
-          doc.setTextColor(30, 41, 59);
-          for (const line of descLines) {
-            doc.text(line, PDF_MARGIN + 12, ry);
-            ry += LINE_H;
-          }
-          ry += 4;
-        }
-
-        if (rLines.length > 0) {
-          doc.setDrawColor(226, 232, 240);
-          doc.setLineWidth(1);
-          doc.line(PDF_MARGIN + 12, ry - 6, pw - PDF_MARGIN - 12, ry - 6);
-          doc.setFont("helvetica", "italic");
-          doc.setFontSize(9);
-          doc.setTextColor(100, 116, 139);
-          for (const line of rLines) {
-            doc.text(line, PDF_MARGIN + 12, ry + 4);
-            ry += LINE_H;
-          }
-        }
-
-        y = cardY + cardH + 18;
-        firstChunk = false;
-      }
+      y = keyValue(doc, y, clause.clauseLabel, clause.clauseValue, generatedOn);
+      y = keyValue(doc, y, "Title", clauseTitle, generatedOn);
+      y = keyValue(doc, y, "Nature", `${nature}; ${bail}`, generatedOn);
+      y = keyValue(doc, y, "IPC Equivalent", ipcValue, generatedOn);
+      y = keyValue(doc, y, "Reasoning", reasoning, generatedOn);
+      y += 8;
     }
   } else {
-    y = addPage(doc, y, 30);
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(9);
-    doc.setTextColor(148, 163, 184);
-    doc.text("No sections mapped.", PDF_MARGIN, y);
+    y = addPage(doc, y, generatedOn, 20);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(51, 65, 85);
+    doc.text(
+      "No legal section could be mapped automatically. Manual legal review required.",
+      PDF_MARGIN,
+      y,
+    );
     y += 20;
   }
 
-  // Primary section summary table
-  y = sectionHeader(doc, "Primary Offence Validation", y);
-  y = labelValue(
-    doc,
-    "Primary BNS Core",
-    `${fir.bnsCode} — ${fir.bnsTitle}`,
-    y,
-    160,
-    true,
+  y = addPage(doc, y, generatedOn, 160);
+  y = sectionTitle(doc, y, "Signature Area", generatedOn);
+  const signBoxY = y;
+  const signBoxW = pw - PDF_MARGIN * 2;
+  const signBoxH = 112;
+  const halfW = signBoxW / 2;
+
+  doc.setDrawColor(148, 163, 184);
+  doc.setLineWidth(0.8);
+  doc.rect(PDF_MARGIN, signBoxY, signBoxW, signBoxH);
+  doc.line(
+    PDF_MARGIN + halfW,
+    signBoxY,
+    PDF_MARGIN + halfW,
+    signBoxY + signBoxH,
   );
-  y = labelValue(doc, "IPC Equivalent", fir.ipcEquiv, y, 160, false);
-  y = labelValue(doc, "Projected Punishment", fir.punishmentLine, y, 160, true);
-  y = labelValue(doc, "Nature", fir.cognizable, y, 160, false);
-  y = labelValue(doc, "Bail Status", fir.bailable, y, 160, true);
-  y += 15;
 
-  // ── CITIZEN RIGHTS & LEGAL REMEDIES ────────────────────────────────
-  const rights: Array<{ title: string; detail: string }> = [
-    {
-      title: "Free FIR Copy (Section 173 BNSS)",
-      detail: "Immediate right to a free official copy of this registered FIR.",
-    },
-    {
-      title: "Zero FIR (Section 173(1) BNSS)",
-      detail:
-        "Can be filed regardless of jurisdiction, to be transferred later.",
-    },
-    {
-      title: "Free Legal Aid (Art. 39A)",
-      detail:
-        "Entitlement to free state legal representation via District Legal Services Authority.",
-    },
-    {
-      title: "Medical Exam (Section 184 BNSS)",
-      detail: "Right to free medical examination for violent offenses.",
-    },
-  ];
-
-  y = sectionHeader(doc, "Statutory Rights", y);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text("Victim Signature", PDF_MARGIN + 14, signBoxY + 24);
+  doc.text("Officer Signature", PDF_MARGIN + halfW + 14, signBoxY + 24);
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(71, 85, 105);
-  doc.text("Select guaranteed rights under BNSS 2023:", PDF_MARGIN, y);
-  y += 18;
-
-  // 2-grid layout for rights
-  const colW = (pw - PDF_MARGIN * 2) / 2 - 10;
-  for (let i = 0; i < rights.length; i += 2) {
-    y = addPage(doc, y, 40);
-
-    doc.setFillColor(248, 250, 252);
-    doc.setDrawColor(203, 213, 225);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(PDF_MARGIN, y, colW, 45, 3, 3, "FD");
-    // Number Box
-    doc.setFillColor(15, 23, 42);
-    doc.rect(PDF_MARGIN, y, 20, 20, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
-    doc.text(String(i + 1), PDF_MARGIN + 6, y + 14);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(15, 23, 42);
-    doc.text(rights[i].title, PDF_MARGIN + 26, y + 14);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text(
-      doc.splitTextToSize(rights[i].detail, colW - 30) as string[],
-      PDF_MARGIN + 26,
-      y + 26,
-    );
-
-    if (rights[i + 1]) {
-      const r2X = PDF_MARGIN + colW + 20;
-      doc.setFillColor(248, 250, 252);
-      doc.setDrawColor(203, 213, 225);
-      doc.setLineWidth(0.5);
-      doc.roundedRect(r2X, y, colW, 45, 3, 3, "FD");
-
-      doc.setFillColor(15, 23, 42);
-      doc.rect(r2X, y, 20, 20, "F");
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(255, 255, 255);
-      doc.text(String(i + 2), r2X + 6, y + 14);
-
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.setTextColor(15, 23, 42);
-      doc.text(rights[i + 1].title, r2X + 26, y + 14);
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(100, 116, 139);
-      doc.text(
-        doc.splitTextToSize(rights[i + 1].detail, colW - 30) as string[],
-        r2X + 26,
-        y + 26,
-      );
-    }
-    y += 55;
-  }
+  doc.setFontSize(9.5);
+  doc.text("Name:", PDF_MARGIN + 14, signBoxY + 48);
+  doc.text("Date:", PDF_MARGIN + 14, signBoxY + 72);
+  doc.text("Name:", PDF_MARGIN + halfW + 14, signBoxY + 48);
+  doc.text("Date:", PDF_MARGIN + halfW + 14, signBoxY + 72);
 
   // Footer and Watermarks on all pages
   const totalPages = (doc.internal as any).getNumberOfPages?.() ?? 1;
   for (let p = 1; p <= totalPages; p++) {
     doc.setPage(p);
 
-    doc.setDrawColor(203, 213, 225);
-    doc.setLineWidth(0.5);
-    doc.line(PDF_MARGIN, ph - 45, pw - PDF_MARGIN, ph - 45);
-    doc.setFont("helvetica", "bold");
+    drawTopTricolor(doc);
+
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
-    doc.text("NyayaSetu AI Pipeline", PDF_MARGIN, ph - 30);
+    doc.text("Nyaya Setu Legal Drafting Pipeline", PDF_MARGIN, ph - 30);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
     doc.text(
-      "Subject to manual inspection and verification by the Investigation Officer.",
+      "Draft support document. Final legal determination remains with authorized police and judicial authorities.",
       PDF_MARGIN,
       ph - 18,
     );
-    doc.text(`PAGE ${p} / ${totalPages}`, pw - PDF_MARGIN - 35, ph - 30);
+    doc.text(`Page ${p} of ${totalPages}`, pw - PDF_MARGIN - 45, ph - 30);
   }
 
   const filename = `FIR_${normalizedFirNumber.replace(/[^\w.-]+/g, "_")}.pdf`;

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.adminBnsListController = exports.adminDashboardController = void 0;
+exports.adminBnssListController = exports.adminBnsListController = exports.adminDashboardController = void 0;
 const enums_1 = require("../../generated/prisma/enums");
 const auth_middleware_1 = require("../../middleware/auth.middleware");
 const server_shared_1 = require("../../server.shared");
@@ -14,9 +14,17 @@ const adminDashboardController = async (req, res) => {
 exports.adminDashboardController = adminDashboardController;
 const adminBnsListController = async (req, res) => {
     await (0, auth_middleware_1.getAuthenticatedUser)(req, [enums_1.Role.ADMIN]);
-    const url = new URL(req.url ?? '/', 'http://localhost');
-    const query = url.searchParams.get('query') ?? undefined;
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const query = url.searchParams.get("query") ?? undefined;
     const sections = await (0, bns_service_1.listAdminBnsSections)(query);
     (0, server_shared_1.sendJson)(res, 200, sections);
 };
 exports.adminBnsListController = adminBnsListController;
+const adminBnssListController = async (req, res) => {
+    await (0, auth_middleware_1.getAuthenticatedUser)(req, [enums_1.Role.ADMIN]);
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const query = url.searchParams.get("query") ?? undefined;
+    const sections = await (0, bns_service_1.listAdminBnssSections)(query);
+    (0, server_shared_1.sendJson)(res, 200, sections);
+};
+exports.adminBnssListController = adminBnssListController;

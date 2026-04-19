@@ -1,5 +1,16 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Building2, MapPin, Phone, RefreshCw, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Building2,
+  Check,
+  MapPin,
+  Pencil,
+  Phone,
+  RefreshCw,
+  Search,
+  Trash2,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { adminService } from "../../services/adminService";
 
 type Station = {
@@ -11,6 +22,10 @@ type Station = {
   state: string;
   pincode: string;
   phone: string;
+  latitude?: number;
+  longitude?: number;
+  email?: string | null;
+  jurisdictionArea?: string | null;
   isActive?: boolean;
 };
 
@@ -34,6 +49,25 @@ const emptyForm: StationForm = {
   phone: "",
 };
 
+const extractErrorMessage = (err: unknown, fallback: string) => {
+  const apiMessage =
+    err &&
+    typeof err === "object" &&
+    "response" in err &&
+    (err as { response?: { data?: { message?: unknown } } }).response?.data
+      ?.message;
+
+  if (typeof apiMessage === "string" && apiMessage.trim()) {
+    return apiMessage;
+  }
+
+  if (err instanceof Error && err.message.trim()) {
+    return err.message;
+  }
+
+  return fallback;
+};
+
 export const AdminStationPage = () => {
   const [stations, setStations] = useState<Station[]>([]);
   const [form, setForm] = useState(emptyForm);
@@ -42,8 +76,44 @@ export const AdminStationPage = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [updatingAddress, setUpdatingAddress] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [isRenameOpen, setIsRenameOpen] = useState(false);
+  const [isAddressOpen, setIsAddressOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [addressValue, setAddressValue] = useState("");
+  const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] = useState(false);
+  const [undoCandidate, setUndoCandidate] = useState<Station | null>(null);
+  const [undoVisible, setUndoVisible] = useState(false);
+  const [undoing, setUndoing] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
+  const clearUndoTimer = () => {
+    if (undoTimerRef.current != null) {
+      window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  };
+
+  const showUndoToast = (station: Station) => {
+    clearUndoTimer();
+    setUndoCandidate(station);
+    setUndoVisible(true);
+    undoTimerRef.current = window.setTimeout(() => {
+      setUndoVisible(false);
+      setUndoCandidate(null);
+      undoTimerRef.current = null;
+    }, 5000);
+  };
+
+  const dismissUndo = () => {
+    clearUndoTimer();
+    setUndoVisible(false);
+    setUndoCandidate(null);
+  };
 
   const loadStations = async () => {
     try {
@@ -52,12 +122,14 @@ export const AdminStationPage = () => {
       const data = await adminService.listStations();
       const rows = Array.isArray(data) ? (data as Station[]) : [];
       setStations(rows);
-      if (rows.length > 0) {
-        setSelectedId((current) => current ?? rows[0].id);
-      }
+      setSelectedId((current) => {
+        if (!rows.length) return null;
+        if (current && rows.some((r) => r.id === current)) return current;
+        return rows[0].id;
+      });
       window.dispatchEvent(new Event("admin:refresh"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load stations.");
+      setError(extractErrorMessage(err, "Unable to load stations."));
     } finally {
       setLoading(false);
     }
@@ -65,6 +137,9 @@ export const AdminStationPage = () => {
 
   useEffect(() => {
     void loadStations();
+    return () => {
+      clearUndoTimer();
+    };
   }, []);
 
   const handleSubmit = async (event: FormEvent) => {
@@ -89,9 +164,7 @@ export const AdminStationPage = () => {
       setSuccess("Station added successfully.");
       await loadStations();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to create station.",
-      );
+      setError(extractErrorMessage(err, "Unable to create station."));
     } finally {
       setSaving(false);
     }
@@ -122,6 +195,120 @@ export const AdminStationPage = () => {
     () => stations.find((station) => station.id === selectedId) ?? null,
     [selectedId, stations],
   );
+
+  useEffect(() => {
+    if (selectedStation) {
+      setRenameValue(selectedStation.name);
+      setAddressValue(selectedStation.address);
+    }
+  }, [selectedStation]);
+
+  const handleRename = async () => {
+    if (!selectedStation) return;
+
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setError("Station name cannot be empty.");
+      return;
+    }
+
+    if (trimmed === selectedStation.name.trim()) {
+      setIsRenameOpen(false);
+      return;
+    }
+
+    try {
+      setRenaming(true);
+      setError(null);
+      setSuccess(null);
+      await adminService.renameStation(selectedStation.id, trimmed);
+      setSuccess("Station renamed successfully.");
+      setIsRenameOpen(false);
+      await loadStations();
+    } catch (err) {
+      setError(extractErrorMessage(err, "Unable to rename station."));
+    } finally {
+      setRenaming(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    if (!selectedStation) return;
+
+    try {
+      setRemoving(true);
+      setError(null);
+      setSuccess(null);
+      const removedStation = selectedStation;
+      await adminService.removeStation(selectedStation.id);
+      setIsRemoveConfirmOpen(false);
+      setSuccess(`Removed station \"${removedStation.name}\".`);
+      showUndoToast(removedStation);
+      await loadStations();
+    } catch (err) {
+      setError(extractErrorMessage(err, "Unable to remove station."));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const handleUpdateAddress = async () => {
+    if (!selectedStation) return;
+
+    const trimmed = addressValue.trim();
+    if (!trimmed) {
+      setError("Station address cannot be empty.");
+      return;
+    }
+
+    if (trimmed === selectedStation.address.trim()) {
+      setIsAddressOpen(false);
+      return;
+    }
+
+    try {
+      setUpdatingAddress(true);
+      setError(null);
+      setSuccess(null);
+      await adminService.updateStationAddress(selectedStation.id, trimmed);
+      setSuccess("Station address updated successfully.");
+      setIsAddressOpen(false);
+      await loadStations();
+    } catch (err) {
+      setError(extractErrorMessage(err, "Unable to update station address."));
+    } finally {
+      setUpdatingAddress(false);
+    }
+  };
+
+  const handleUndoRemove = async () => {
+    if (!undoCandidate) return;
+
+    try {
+      setUndoing(true);
+      setError(null);
+      await adminService.createStation({
+        name: undoCandidate.name,
+        stationCode: undoCandidate.stationCode,
+        address: undoCandidate.address,
+        district: undoCandidate.district,
+        state: undoCandidate.state,
+        pincode: undoCandidate.pincode,
+        phone: undoCandidate.phone,
+        latitude: undoCandidate.latitude ?? 0,
+        longitude: undoCandidate.longitude ?? 0,
+        email: undoCandidate.email ?? undefined,
+        jurisdictionArea: undoCandidate.jurisdictionArea ?? undefined,
+      });
+      dismissUndo();
+      setSuccess(`Restored station \"${undoCandidate.name}\".`);
+      await loadStations();
+    } catch (err) {
+      setError(extractErrorMessage(err, "Unable to restore station."));
+    } finally {
+      setUndoing(false);
+    }
+  };
 
   const districtCount = useMemo(() => {
     return new Set(
@@ -301,6 +488,7 @@ export const AdminStationPage = () => {
               <select
                 value={stateFilter}
                 onChange={(e) => setStateFilter(e.target.value)}
+                aria-label="Filter stations by state"
                 className="rounded-xl bg-[#0b0b0b] border border-white/[0.08] px-3 py-2 text-sm text-white"
               >
                 <option value="all">All states</option>
@@ -372,10 +560,140 @@ export const AdminStationPage = () => {
           </table>
 
           {selectedStation && (
-            <div className="border-t border-white/[0.08] p-4 bg-[#0b0b0b]/70">
-              <p className="text-[10px] uppercase tracking-[0.15em] text-[#9CA3AF] mb-2">
-                Selected station
-              </p>
+            <div className="border-t border-white/[0.08] p-4 bg-[#0b0b0b]/70 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-[#9CA3AF]">
+                  Selected station
+                </p>
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    type="button"
+                    whileHover={{ y: -1, scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      setIsRenameOpen((v) => !v);
+                      setRenameValue(selectedStation.name);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.16] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-[#D1D5DB] hover:text-white"
+                  >
+                    <Pencil size={12} /> Rename
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    whileHover={{ y: -1, scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => {
+                      setIsAddressOpen((v) => !v);
+                      setAddressValue(selectedStation.address);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.16] bg-white/[0.04] px-2.5 py-1.5 text-[11px] font-semibold text-[#D1D5DB] hover:text-white"
+                  >
+                    <MapPin size={12} /> Address
+                  </motion.button>
+                  <motion.button
+                    type="button"
+                    whileHover={{ y: -1, scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setIsRemoveConfirmOpen(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-red-200 hover:bg-red-500/20"
+                  >
+                    <Trash2 size={12} /> Remove
+                  </motion.button>
+                </div>
+              </div>
+
+              <AnimatePresence>
+                {isRenameOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    className="rounded-xl border border-[#F97316]/35 bg-[#1a1208] p-3"
+                  >
+                    <p className="text-[10px] uppercase tracking-[0.13em] text-[#FDBA74] mb-2 font-semibold">
+                      Rename station
+                    </p>
+                    <div className="flex flex-col md:flex-row gap-2">
+                      <input
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        className="flex-1 rounded-lg bg-[#0b0b0b] border border-white/[0.12] px-3 py-2 text-sm text-white placeholder:text-[#6B7280]"
+                        placeholder="New station name"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          aria-label="Cancel rename"
+                          title="Cancel rename"
+                          onClick={() => {
+                            setIsRenameOpen(false);
+                            setRenameValue(selectedStation.name);
+                          }}
+                          className="inline-flex items-center justify-center rounded-lg border border-white/[0.16] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-[#D1D5DB]"
+                        >
+                          <X size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={renaming}
+                          onClick={() => void handleRename()}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-[#F97316] px-3 py-2 text-xs font-bold text-white disabled:opacity-70"
+                        >
+                          <Check size={13} />
+                          {renaming ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence>
+                {isAddressOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    className="rounded-xl border border-sky-300/30 bg-[#08131a] p-3"
+                  >
+                    <p className="text-[10px] uppercase tracking-[0.13em] text-sky-200 mb-2 font-semibold">
+                      Update address
+                    </p>
+                    <div className="flex flex-col md:flex-row gap-2">
+                      <input
+                        value={addressValue}
+                        onChange={(e) => setAddressValue(e.target.value)}
+                        className="flex-1 rounded-lg bg-[#0b0b0b] border border-white/[0.12] px-3 py-2 text-sm text-white placeholder:text-[#6B7280]"
+                        placeholder="New station address"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          aria-label="Cancel address update"
+                          title="Cancel address update"
+                          onClick={() => {
+                            setIsAddressOpen(false);
+                            setAddressValue(selectedStation.address);
+                          }}
+                          className="inline-flex items-center justify-center rounded-lg border border-white/[0.16] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-[#D1D5DB]"
+                        >
+                          <X size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={updatingAddress}
+                          onClick={() => void handleUpdateAddress()}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-70"
+                        >
+                          <Check size={13} />
+                          {updatingAddress ? "Saving..." : "Save"}
+                        </button>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <div className="grid md:grid-cols-3 gap-3 text-sm">
                 <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
                   <p className="text-[#9CA3AF] mb-1">Code</p>
@@ -402,6 +720,98 @@ export const AdminStationPage = () => {
           )}
         </div>
       </div>
+
+      <AnimatePresence>
+        {isRemoveConfirmOpen && selectedStation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[1px] flex items-center justify-center p-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              className="w-full max-w-md rounded-2xl border border-red-300/30 bg-[#120b0b] p-5 shadow-2xl"
+            >
+              <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-red-300 mb-2">
+                Confirm removal
+              </p>
+              <h3 className="text-lg font-bold text-white mb-1">
+                Remove station permanently?
+              </h3>
+              <p className="text-sm text-[#D1D5DB] mb-4">
+                This will remove{" "}
+                <span className="font-semibold text-white">
+                  {selectedStation.name}
+                </span>{" "}
+                from the station catalogue.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRemoveConfirmOpen(false)}
+                  className="rounded-lg border border-white/[0.16] bg-white/[0.04] px-3 py-2 text-xs font-semibold text-[#D1D5DB]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={removing}
+                  onClick={() => void handleRemove()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-400/30 bg-red-500/15 px-3 py-2 text-xs font-bold text-red-100 disabled:opacity-70"
+                >
+                  <Trash2 size={13} />
+                  {removing ? "Removing..." : "Remove"}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {undoVisible && undoCandidate && (
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="fixed right-6 bottom-6 z-50 w-full max-w-sm rounded-2xl border border-emerald-300/30 bg-[#08120c] shadow-2xl p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-300 font-bold mb-1">
+                  Station removed
+                </p>
+                <p className="text-sm text-[#D1D5DB] leading-relaxed">
+                  {undoCandidate.name} was removed from the catalogue.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss undo notification"
+                onClick={dismissUndo}
+                className="rounded-md border border-white/[0.14] bg-white/[0.04] p-1.5 text-[#D1D5DB] hover:text-white"
+              >
+                <X size={12} />
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => void handleUndoRemove()}
+                disabled={undoing}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300/30 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-100 disabled:opacity-70"
+              >
+                {undoing ? "Restoring..." : "Undo"}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

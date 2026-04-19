@@ -6,7 +6,7 @@ All BNS/IPC mapping is done exclusively via the trained RAG pipeline:
   Stage 2 — Cross-encoder re-ranking (ms-marco-MiniLM-L-6-v2)
   Stage 3 — Confidence gate (returns 'Pending' instead of hallucinating)
 
-Voice is handled by openai-whisper (medium model).
+Voice is handled by openai-whisper (large model).
 
 Endpoints:
   GET  /health              — service/model status
@@ -35,14 +35,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from bns_mapper import export_catalog_entries, get_bns_mapper
+from bns_mapper import export_bnss_catalog_entries, export_catalog_entries, get_bns_mapper
 
 # ── Whisper lazy-loader ──────────────────────────────────────────────────────
 _WHISPER_MODEL    = None
 _WHISPER_AVAILABLE = False
 _WHISPER_DEVICE   = "cpu"
 _WHISPER_USE_FP16 = False
-WHISPER_MODEL_NAME = "medium"
+WHISPER_MODEL_NAME = "large"
 
 
 def _detect_device() -> tuple[str, bool]:
@@ -110,7 +110,7 @@ def _whisper_transcribe_bytes(audio_bytes: bytes, filename: str, language: str) 
                 )
                 with tqdm(
                     total=100,
-                    desc="ASR (Whisper medium)",
+                    desc="ASR (Whisper large)",
                     unit="%",
                     file=sys.stdout,
                     dynamic_ncols=True,
@@ -303,7 +303,7 @@ def _run_audio_pipeline(
 ) -> dict[str, Any]:
     transcript = _whisper_transcribe_bytes(audio_bytes, filename, language)
     if not transcript:
-        transcript = "[Whisper medium transcription unavailable]"
+        transcript = "[Whisper large transcription unavailable]"
     classifications = _classify_text(transcript)
     return _build_pipeline_response(transcript, raw_text, language, classifications)
 
@@ -347,6 +347,28 @@ def catalog() -> dict[str, Any]:
             "count": 0,
             "rows": [],
             "source": "nandhakumarg/IPC_and_BNS_transformation",
+            "model_version": "nyayasetu-rag-v3",
+            "error": str(exc),
+        }
+
+
+@app.get("/v1/bnss-catalog")
+def bnss_catalog() -> dict[str, Any]:
+    """Return BNSS catalog rows derived from trained CRPC-BNSS artifacts."""
+    try:
+        rows = export_bnss_catalog_entries()
+        return {
+            "count": len(rows),
+            "rows": rows,
+            "source": "local CRPC-BNSS PDF extraction + trained artifacts",
+            "model_version": "nyayasetu-rag-v3",
+        }
+    except Exception as exc:
+        print(f"[bnss-catalog] export failed: {exc}")
+        return {
+            "count": 0,
+            "rows": [],
+            "source": "local CRPC-BNSS PDF extraction + trained artifacts",
             "model_version": "nyayasetu-rag-v3",
             "error": str(exc),
         }

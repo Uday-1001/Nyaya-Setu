@@ -30,8 +30,8 @@ services:
     container_name: nyayasetu-ml
     environment:
       PYTHONUNBUFFERED: "1"
-      NYAYASETU_ASR_MODEL: "medium"
-      NYAYASETU_WHISPER_MODEL: "medium"
+      NYAYASETU_ASR_MODEL: "large"
+      NYAYASETU_WHISPER_MODEL: "large"
       NYAYASETU_FORCE_TFIDF: "false"
     ports:
       - "8000:8000"

@@ -38,7 +38,17 @@ const runVictimMlPipeline = async (userId, input) => {
     if (!env_1.env.mlServiceUrl) {
         throw new ApiError_1.ApiError(503, "ML_SERVICE_URL is not configured. The BNS classification service is required.");
     }
-    if (input.audio?.buffer && input.audio.buffer.length > 0) {
+    // If transcript text is already present (from UI transcription step), use text pipeline first.
+    // This avoids re-running heavy audio inference during submission.
+    if (fallbackText) {
+        try {
+            normalized = await (0, mlClient_1.remotePipelineText)(fallbackText, langIso);
+        }
+        catch (err) {
+            throw new ApiError_1.ApiError(503, "The ML classification service failed. Ensure the Python ML service is running and reachable.");
+        }
+    }
+    else if (input.audio?.buffer && input.audio.buffer.length > 0) {
         try {
             normalized = await (0, mlClient_1.remotePipelineAudio)(input.audio.buffer, input.audio.filename, input.audio.mimeType, {
                 language: langIso,
@@ -49,14 +59,6 @@ const runVictimMlPipeline = async (userId, input) => {
         }
         catch (err) {
             throw new ApiError_1.ApiError(503, "Voice transcription failed. Ensure the ML service is running and reachable, then try again.");
-        }
-    }
-    else if (fallbackText) {
-        try {
-            normalized = await (0, mlClient_1.remotePipelineText)(fallbackText, langIso);
-        }
-        catch (err) {
-            throw new ApiError_1.ApiError(503, "The ML classification service failed. Ensure the Python ML service is running and reachable.");
         }
     }
     else {
