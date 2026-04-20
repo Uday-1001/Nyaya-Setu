@@ -6,7 +6,7 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /api/health
-    buildCommand: npm ci && npx prisma generate --schema ../prisma/schema.prisma --config prisma.config.ts && npx prisma migrate deploy --schema ../prisma/schema.prisma --config prisma.config.ts && npm run build
+    buildCommand: cd .. && npm ci && cd backend && npm ci && npx prisma generate --schema ../prisma/schema.prisma --config prisma.config.ts && npx prisma migrate deploy --schema ../prisma/schema.prisma --config prisma.config.ts && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_ENV
