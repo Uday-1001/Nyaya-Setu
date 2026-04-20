@@ -11,10 +11,27 @@ export const sendJson = (res: ServerResponse, statusCode: number, body: unknown)
 const localhostOriginOk = (o: string) =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o);
 
+const normalize = (value: string) => value.trim().replace(/\/$/, '');
+
+const wildcardOriginMatch = (origin: string, pattern: string) => {
+  const normalizedOrigin = normalize(origin);
+  const normalizedPattern = normalize(pattern);
+
+  if (!normalizedPattern.includes('*')) {
+    return normalizedOrigin === normalizedPattern;
+  }
+
+  const escaped = normalizedPattern
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*');
+
+  return new RegExp(`^${escaped}$`, 'i').test(normalizedOrigin);
+};
+
 const originIsAllowed = (origin: string | undefined): origin is string => {
   if (!origin) return false;
-  if (origin === env.appUrl) return true;
-  if (env.corsOrigins.includes(origin)) return true;
+  if (wildcardOriginMatch(origin, env.appUrl)) return true;
+  if (env.corsOrigins.some((allowed) => wildcardOriginMatch(origin, allowed))) return true;
   /* Vite often runs on 5174–5177; echoing the real Origin is required for credentialed requests. */
   if (!isProduction && localhostOriginOk(origin)) return true;
   return false;

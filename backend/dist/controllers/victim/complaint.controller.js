@@ -54,6 +54,9 @@ const submitStatementToStationController = async (req, res, body) => {
     const result = await (0, statement_service_1.submitVictimStatementToStation)(user.id, {
         stationId: String(body.stationId ?? ""),
         statementId: body.statementId ? String(body.statementId) : undefined,
+        signatureDataUrl: body.signatureDataUrl
+            ? String(body.signatureDataUrl)
+            : undefined,
     });
     (0, server_shared_1.sendJson)(res, 200, result);
 };

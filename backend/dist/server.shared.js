@@ -10,12 +10,24 @@ const sendJson = (res, statusCode, body) => {
 };
 exports.sendJson = sendJson;
 const localhostOriginOk = (o) => /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o);
+const normalize = (value) => value.trim().replace(/\/$/, '');
+const wildcardOriginMatch = (origin, pattern) => {
+    const normalizedOrigin = normalize(origin);
+    const normalizedPattern = normalize(pattern);
+    if (!normalizedPattern.includes('*')) {
+        return normalizedOrigin === normalizedPattern;
+    }
+    const escaped = normalizedPattern
+        .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+        .replace(/\*/g, '.*');
+    return new RegExp(`^${escaped}$`, 'i').test(normalizedOrigin);
+};
 const originIsAllowed = (origin) => {
     if (!origin)
         return false;
-    if (origin === env_1.env.appUrl)
+    if (wildcardOriginMatch(origin, env_1.env.appUrl))
         return true;
-    if (env_1.env.corsOrigins.includes(origin))
+    if (env_1.env.corsOrigins.some((allowed) => wildcardOriginMatch(origin, allowed)))
         return true;
     /* Vite often runs on 5174–5177; echoing the real Origin is required for credentialed requests. */
     if (!env_1.isProduction && localhostOriginOk(origin))

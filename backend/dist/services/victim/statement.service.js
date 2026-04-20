@@ -5,6 +5,7 @@ const enums_1 = require("../../generated/prisma/enums");
 const database_1 = require("../../config/database");
 const ApiError_1 = require("../../utils/ApiError");
 const catalog_service_1 = require("./catalog.service");
+const node_crypto_1 = require("node:crypto");
 const languageEnumToIso = (lang) => {
     if (lang === enums_1.Language.HINDI)
         return "hi";
@@ -114,9 +115,71 @@ const submitVictimStatementToStation = async (userId, payload) => {
             include: { station: true, bnsSections: true },
         });
         if (existingFir) {
-            return { fir: existingFir, alreadySubmitted: true };
+            const marker = existingFir.aiGeneratedSummary ?? "";
+            const isGeneralComplaintRecord = marker.startsWith("GENERAL_COMPLAINT::");
+            if (!isGeneralComplaintRecord) {
+                throw new ApiError_1.ApiError(409, "This statement is already attached to an FIR and cannot be submitted again as a general complaint.");
+            }
+            if (existingFir.status !== "DRAFT") {
+                throw new ApiError_1.ApiError(409, "This complaint has already been reviewed by the station and cannot be re-submitted.");
+            }
+            if (existingFir.stationId !== stationId) {
+                const rawMeta = marker.replace("GENERAL_COMPLAINT::", "").trim();
+                let complaintMeta = {};
+                if (rawMeta) {
+                    try {
+                        complaintMeta = JSON.parse(rawMeta);
+                    }
+                    catch {
+                        complaintMeta = {};
+                    }
+                }
+                const refreshedMeta = {
+                    ...complaintMeta,
+                    mode: "GENERAL_COMPLAINT",
+                    stage: "PENDING_OFFICER_DECISION",
+                    submittedAt: new Date().toISOString(),
+                };
+                const movedFir = await database_1.prisma.$transaction(async (tx) => {
+                    const updatedFir = await tx.fIR.update({
+                        where: { id: existingFir.id },
+                        data: {
+                            stationId,
+                            status: "DRAFT",
+                            aiGeneratedSummary: `GENERAL_COMPLAINT::${JSON.stringify(refreshedMeta)}`,
+                        },
+                        include: { station: true, bnsSections: true },
+                    });
+                    await tx.caseUpdate.create({
+                        data: {
+                            firId: existingFir.id,
+                            status: "DRAFT",
+                            note: `Victim moved this general complaint to station review queue: ${station.name}.`,
+                            updatedById: userId,
+                        },
+                    });
+                    return updatedFir;
+                });
+                return {
+                    fir: movedFir,
+                    alreadySubmitted: true,
+                    recommendation: statement.classification?.urgencyLevel ?? "MEDIUM",
+                };
+            }
+            return {
+                fir: existingFir,
+                alreadySubmitted: true,
+                recommendation: statement.classification?.urgencyLevel ?? "MEDIUM",
+            };
         }
     }
+    const signatureDataUrl = String(payload.signatureDataUrl ?? "").trim();
+    if (!signatureDataUrl.startsWith("data:image/")) {
+        throw new ApiError_1.ApiError(400, "A digital signature image is required to register a general complaint.");
+    }
+    const signatureDigest = (0, node_crypto_1.createHash)("sha256")
+        .update(signatureDataUrl)
+        .digest("hex");
     const statementText = (statement.rawText ??
         statement.translatedText ??
         "").trim();
@@ -125,6 +188,14 @@ const submitVictimStatementToStation = async (userId, payload) => {
     }
     const fir = await database_1.prisma.$transaction(async (tx) => {
         const firNumber = await (0, firNumber_1.generateUniqueFirNumber)(tx);
+        const recommendation = statement.classification?.urgencyLevel ?? "MEDIUM";
+        const complaintMeta = {
+            mode: "GENERAL_COMPLAINT",
+            stage: "PENDING_OFFICER_DECISION",
+            recommendation,
+            signatureDigest,
+            submittedAt: new Date().toISOString(),
+        };
         const createdFir = await tx.fIR.create({
             data: {
                 firNumber,
@@ -132,11 +203,12 @@ const submitVictimStatementToStation = async (userId, payload) => {
                 stationId,
                 status: "DRAFT",
                 isOnlineFIR: true,
-                urgencyLevel: statement.classification?.urgencyLevel ?? "MEDIUM",
+                urgencyLevel: recommendation,
                 incidentDate: statement.incidentDate ?? new Date(),
                 incidentTime: statement.incidentTime?.trim() || null,
                 incidentLocation: statement.incidentLocation?.trim() || "Location to be confirmed",
                 incidentDescription: statementText,
+                aiGeneratedSummary: `GENERAL_COMPLAINT::${JSON.stringify(complaintMeta)}`,
                 bnsSections: statement.classification?.bnsSectionId
                     ? { connect: [{ id: statement.classification.bnsSectionId }] }
                     : undefined,
@@ -157,12 +229,16 @@ const submitVictimStatementToStation = async (userId, payload) => {
             data: {
                 firId: createdFir.id,
                 status: "DRAFT",
-                note: "Victim submitted statement online for station review.",
+                note: `Victim registered a general complaint for station review. Recommended severity: ${recommendation}. Signature hash: ${signatureDigest.slice(0, 12)}...`,
                 updatedById: userId,
             },
         });
         return createdFir;
     });
-    return { fir, alreadySubmitted: false };
+    return {
+        fir,
+        alreadySubmitted: false,
+        recommendation: statement.classification?.urgencyLevel ?? "MEDIUM",
+    };
 };
 exports.submitVictimStatementToStation = submitVictimStatementToStation;

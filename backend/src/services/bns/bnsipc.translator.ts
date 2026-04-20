@@ -1,4 +1,5 @@
 import { prisma } from "../../config/database";
+import { env } from "../../config/env";
 import { ApiError } from "../../utils/ApiError";
 import type { BNSSection } from "../../generated/prisma/client";
 
@@ -243,7 +244,10 @@ export class BNSIPCTranslatorService {
     urgencyLevel: string;
     transcript: string;
   }> {
-    const mlServiceUrl = process.env.ML_SERVICE_URL || "http://localhost:8000";
+    if (!env.mlServiceUrl) {
+      throw new ApiError(500, "ML_SERVICE_URL is not configured.");
+    }
+    const mlServiceUrl = env.mlServiceUrl;
 
     try {
       console.log(

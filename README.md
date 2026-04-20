@@ -87,6 +87,12 @@ Then open:
 - Backend health: http://localhost:5000/api/health
 - ML health: http://localhost:8000/health
 
+## ☁️ Render Deployment
+
+- Blueprint file: `render.yaml`
+- Stepwise deployment guide: `DEPLOY_RENDER.md`
+- Production env template: `.env.render.example`
+
 ## 🧪 Local Dev (Without Docker)
 
 Install dependencies:

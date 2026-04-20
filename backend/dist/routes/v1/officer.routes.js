@@ -5,6 +5,7 @@ const asyncHandler_1 = require("../../utils/asyncHandler");
 const fir_controller_1 = require("../../controllers/officer/fir.controller");
 const dashboard_controller_1 = require("../../controllers/officer/dashboard.controller");
 const recording_controller_1 = require("../../controllers/officer/recording.controller");
+const generalComplaint_controller_1 = require("../../controllers/officer/generalComplaint.controller");
 exports.officerRoutes = [
     {
         method: "GET",
@@ -76,6 +77,17 @@ exports.officerRoutes = [
         method: "GET",
         path: "/api/officer/firs",
         handler: (0, asyncHandler_1.asyncHandler)(fir_controller_1.FIRController.getFIRsByStation),
+    },
+    // General Complaint Review
+    {
+        method: "GET",
+        path: "/api/officer/general-complaints",
+        handler: (0, asyncHandler_1.asyncHandler)(generalComplaint_controller_1.GeneralComplaintController.listPending),
+    },
+    {
+        method: "POST",
+        path: "/api/officer/general-complaints/decision",
+        handler: (0, asyncHandler_1.asyncHandler)(generalComplaint_controller_1.GeneralComplaintController.decide),
     },
     // Voice Recording
     {

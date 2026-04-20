@@ -11,6 +11,14 @@ const app = async (req, res) => {
         res.end();
         return;
     }
+    if (req.method === 'GET' && req.url === '/api/health') {
+        (0, server_shared_1.sendJson)(res, 200, {
+            success: true,
+            status: 'ok',
+            service: 'backend',
+        });
+        return;
+    }
     try {
         const requestUrl = new URL(req.url ?? '/', 'http://localhost');
         const method = req.method ?? 'GET';

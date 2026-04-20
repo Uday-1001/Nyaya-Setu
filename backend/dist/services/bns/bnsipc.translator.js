@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.BNSIPCTranslatorService = void 0;
 const database_1 = require("../../config/database");
+const env_1 = require("../../config/env");
 const ApiError_1 = require("../../utils/ApiError");
 class BNSIPCTranslatorService {
     /**
@@ -200,7 +201,10 @@ class BNSIPCTranslatorService {
      * Analyze complaint using ML service and fetch matching BNS sections
      */
     static async analyzeComplaintWithML(complaint, language = "hi") {
-        const mlServiceUrl = process.env.ML_SERVICE_URL || "http://localhost:8000";
+        if (!env_1.env.mlServiceUrl) {
+            throw new ApiError_1.ApiError(500, "ML_SERVICE_URL is not configured.");
+        }
+        const mlServiceUrl = env_1.env.mlServiceUrl;
         try {
             console.log(`[BNS ML] Analyzing complaint: "${complaint.substring(0, 50)}..."`);
             console.log(`[BNS ML] Calling ML service at: ${mlServiceUrl}/v1/pipeline/json`);

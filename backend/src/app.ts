@@ -12,6 +12,15 @@ export const app = async (req: IncomingMessage, res: ServerResponse) => {
     return;
   }
 
+  if (req.method === 'GET' && req.url === '/api/health') {
+    sendJson(res, 200, {
+      success: true,
+      status: 'ok',
+      service: 'backend',
+    });
+    return;
+  }
+
   try {
     const requestUrl = new URL(req.url ?? '/', 'http://localhost');
     const method = req.method ?? 'GET';
