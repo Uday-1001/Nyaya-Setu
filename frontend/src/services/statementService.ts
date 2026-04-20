@@ -16,6 +16,7 @@ export type VictimStatementPayload = {
 export type SubmitStatementToStationPayload = {
   stationId: string;
   statementId?: string;
+  signatureDataUrl?: string;
 };
 
 export const statementService = {
@@ -36,10 +37,15 @@ export const statementService = {
     );
     return data as {
       alreadySubmitted: boolean;
+      recommendation?: string;
       fir: {
         id: string;
         firNumber: string | null;
         acknowledgmentNo: string | null;
+        station?: {
+          id: string;
+          name: string;
+        } | null;
       };
     };
   },

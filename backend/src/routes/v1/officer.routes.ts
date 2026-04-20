@@ -3,6 +3,7 @@ import { asyncHandler } from "../../utils/asyncHandler";
 import { FIRController } from "../../controllers/officer/fir.controller";
 import { OfficerDashboardController } from "../../controllers/officer/dashboard.controller";
 import { OfficerRecordingController } from "../../controllers/officer/recording.controller";
+import { GeneralComplaintController } from "../../controllers/officer/generalComplaint.controller";
 
 export const officerRoutes: RouteDefinition[] = [
   {
@@ -76,6 +77,18 @@ export const officerRoutes: RouteDefinition[] = [
     method: "GET",
     path: "/api/officer/firs",
     handler: asyncHandler(FIRController.getFIRsByStation),
+  },
+
+  // General Complaint Review
+  {
+    method: "GET",
+    path: "/api/officer/general-complaints",
+    handler: asyncHandler(GeneralComplaintController.listPending),
+  },
+  {
+    method: "POST",
+    path: "/api/officer/general-complaints/decision",
+    handler: asyncHandler(GeneralComplaintController.decide),
   },
 
   // Voice Recording

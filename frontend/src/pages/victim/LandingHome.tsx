@@ -225,7 +225,7 @@ const ACTIONS: Action[] = [
     icon: FileText,
     title: "Describe Incident",
     titleHi: "घटना बताएं",
-    desc: "AI maps it to the correct BNS section automatically",
+    desc: "Register details and prepare your general complaint dossier",
     href: "/victim/statement",
     color: "#3B82F6",
   },
@@ -276,7 +276,6 @@ const STATS: Stat[] = [
 
 const NAV_LINKS = [
   { label: "Statement Workspace", href: "/victim/statement" },
-  { label: "Send to Station", href: "/victim/statement?send=1" },
   { label: "Know Rights", href: "/victim/rights" },
   { label: "My Cases", href: "/victim/tracker" },
 ];

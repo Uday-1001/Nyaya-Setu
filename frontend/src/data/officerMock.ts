@@ -3,7 +3,8 @@ export type FIRStatus =
   | "AI Ready"
   | "Under Review"
   | "Document Generated"
-  | "Signed";
+  | "Signed"
+  | "General Review";
 
 export type VoiceRec = {
   id: string;
@@ -70,6 +71,9 @@ export type MockFIR = {
     incidentLocation: string;
     witnessDetails: string;
   }>;
+  isGeneralComplaint?: boolean;
+  complaintRecommendation?: string | null;
+  signatureOnFile?: boolean;
 };
 
 export const OFFICER = {

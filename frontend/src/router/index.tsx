@@ -1,4 +1,8 @@
-import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import {
+  createBrowserRouter,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 import { Suspense, lazy } from "react";
 import { PrivateRoute } from "../features/shared/auth/PrivateRoute";
 import { Spinner } from "../components/ui/Spinner";
@@ -222,6 +226,10 @@ const router = createBrowserRouter([
             <VictimProfilePage />
           </Suspense>
         ),
+      },
+      {
+        path: "/victim/general-complaint",
+        element: <Navigate to="/victim/statement" replace />,
       },
     ],
   },

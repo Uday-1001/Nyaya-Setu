@@ -83,6 +83,14 @@ type BackendFIR = {
   }>;
 };
 
+type BackendGeneralComplaintMeta = {
+  mode?: string;
+  stage?: string;
+  recommendation?: string;
+  signatureDigest?: string;
+  decision?: "GENERAL" | "FIR";
+};
+
 type DashboardResponse = {
   stats: {
     firsReceived: number;
@@ -126,6 +134,19 @@ const mapStatus = (status: BackendFIRStatus): MockFIR["status"] => {
     case "DRAFT":
     default:
       return "AI Ready";
+  }
+};
+
+const parseGeneralComplaintMeta = (
+  aiGeneratedSummary: string | null,
+): BackendGeneralComplaintMeta | null => {
+  if (!aiGeneratedSummary) return null;
+  const prefix = "GENERAL_COMPLAINT::";
+  if (!aiGeneratedSummary.startsWith(prefix)) return null;
+  try {
+    return JSON.parse(aiGeneratedSummary.slice(prefix.length));
+  } catch {
+    return null;
   }
 };
 
@@ -186,6 +207,15 @@ const buildTimeline = (fir: BackendFIR): TimelineEntry[] => {
 };
 
 const mapFir = (fir: BackendFIR): MockFIR => {
+  const complaintMeta = parseGeneralComplaintMeta(fir.aiGeneratedSummary);
+  const isGeneralComplaint = Boolean(
+    complaintMeta && complaintMeta.mode === "GENERAL_COMPLAINT",
+  );
+  const uiStatus: MockFIR["status"] =
+    isGeneralComplaint && fir.status === "DRAFT"
+      ? "General Review"
+      : mapStatus(fir.status);
+
   const primarySection = fir.bnsSections[0];
   const voiceCount = fir.voiceRecordings?.length ?? 0;
   const verifiedVoice =
@@ -217,7 +247,7 @@ const mapFir = (fir: BackendFIR): MockFIR => {
     cognizable: primarySection?.isCognizable ? "Cognizable" : "Non-Cognizable",
     bailable: primarySection?.isBailable ? "Bailable" : "Non-Bailable",
     urgency: fir.urgencyLevel,
-    status: mapStatus(fir.status),
+    status: uiStatus,
     isOnlineFIR: fir.isOnlineFIR,
     received: formatDateTime(fir.createdAt),
     location: fir.incidentLocation,
@@ -247,6 +277,9 @@ const mapFir = (fir: BackendFIR): MockFIR => {
     })),
     timeline: buildTimeline(fir),
     checklistVoiceOk: verifiedVoice,
+    isGeneralComplaint,
+    complaintRecommendation: complaintMeta?.recommendation ?? null,
+    signatureOnFile: Boolean(complaintMeta?.signatureDigest),
     officerDetails: fir.officer
       ? {
           badgeNumber: fir.officer.badgeNumber,
@@ -320,6 +353,25 @@ export const officerService = {
       "/officer/firs",
     );
     return data.data.map(mapFir);
+  },
+
+  async listGeneralComplaints() {
+    const { data } = await api.get<{ success: true; data: BackendFIR[] }>(
+      "/officer/general-complaints",
+    );
+    return data.data.map(mapFir);
+  },
+
+  async decideGeneralComplaint(payload: {
+    firId: string;
+    decision: "GENERAL" | "FIR";
+    note?: string;
+  }) {
+    const { data } = await api.post<{ success: true; data: BackendFIR }>(
+      "/officer/general-complaints/decision",
+      payload,
+    );
+    return mapFir(data.data);
   },
 
   async getFir(firId: string) {

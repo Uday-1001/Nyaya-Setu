@@ -86,6 +86,9 @@ export const submitStatementToStationController = async (
   const result = await submitVictimStatementToStation(user.id, {
     stationId: String(body.stationId ?? ""),
     statementId: body.statementId ? String(body.statementId) : undefined,
+    signatureDataUrl: body.signatureDataUrl
+      ? String(body.signatureDataUrl)
+      : undefined,
   });
 
   sendJson(res, 200, result);

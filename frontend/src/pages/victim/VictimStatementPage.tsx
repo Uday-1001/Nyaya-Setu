@@ -24,15 +24,13 @@ import {
   FileSearch,
   RefreshCw,
   Building2,
-  Search,
-  ChevronDown,
 } from "lucide-react";
 import { useStatement } from "../../features/victim/statement/useStatement";
 import { StatementVoiceTab } from "../../features/victim/statement/StatementVoiceTab";
 import { mlPipelineService } from "../../services/mlPipelineService";
 import { bnsService } from "../../services/bnsService";
-import { stationService } from "../../services/stationService";
 import { statementService } from "../../services/statementService";
+import { stationService } from "../../services/stationService";
 import { useAuthStore } from "../../store/authStore";
 import { downloadStatementReportPdf } from "../../features/victim/statement/statementPdf";
 import { readVictimTheme } from "../../features/victim/theme/victimTheme";
@@ -71,7 +69,7 @@ const item = {
 export const VictimStatementPage = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { latestStatement, isLoading, error, reload } = useStatement();
+  const { isLoading, error, reload } = useStatement();
   const user = useAuthStore((s) => s.user);
   const [isDark] = useState(() => readVictimTheme());
 
@@ -95,15 +93,17 @@ export const VictimStatementPage = () => {
     null,
   );
   const [refreshingWorkspace, setRefreshingWorkspace] = useState(false);
+  const [loadingSavedStatement, setLoadingSavedStatement] = useState(false);
+  const [loadedSavedStatement, setLoadedSavedStatement] = useState<{
+    id?: string;
+    rawText?: string | null;
+  } | null>(null);
   const [stations, setStations] = useState<VictimStation[]>([]);
   const [stationsLoading, setStationsLoading] = useState(false);
-  const [stationQuery, setStationQuery] = useState("");
-  const [stationPickerOpen, setStationPickerOpen] = useState(false);
   const [selectedStationId, setSelectedStationId] = useState("");
-  const [sendSuccess, setSendSuccess] = useState<string | null>(null);
-  const [sendingToStation, setSendingToStation] = useState(false);
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
+  const [complaintSuccess, setComplaintSuccess] = useState<string | null>(null);
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const stationPickerRef = useRef<HTMLDivElement | null>(null);
   const signatureInputRef = useRef<HTMLInputElement | null>(null);
   const textSubmitDisabled =
     saving ||
@@ -114,39 +114,10 @@ export const VictimStatementPage = () => {
   const activeStatementId = useMemo(
     () =>
       (analysis?.statement?.id as string | undefined) ??
-      (latestStatement?.id as string | undefined) ??
+      (loadedSavedStatement?.id as string | undefined) ??
       undefined,
-    [analysis?.statement?.id, latestStatement?.id],
+    [analysis?.statement?.id, loadedSavedStatement?.id],
   );
-  const filteredStations = useMemo(() => {
-    const query = stationQuery.trim().toLowerCase();
-    if (!query) return stations;
-
-    return stations.filter((station) => {
-      const searchIndex =
-        `${station.name} ${station.district} ${station.state} ${station.stationCode ?? ""}`.toLowerCase();
-      return searchIndex.includes(query);
-    });
-  }, [stationQuery, stations]);
-  const selectedStation = useMemo(
-    () => stations.find((station) => station.id === selectedStationId) ?? null,
-    [selectedStationId, stations],
-  );
-  const stationOptions = useMemo(() => {
-    if (!selectedStation) return filteredStations;
-    if (filteredStations.some((station) => station.id === selectedStation.id)) {
-      return filteredStations;
-    }
-    return [selectedStation, ...filteredStations];
-  }, [filteredStations, selectedStation]);
-  const formatStationLine = (station: VictimStation) =>
-    `${station.name} ${station.stationCode ? `- ${station.stationCode}` : ""}, ${station.district}, ${station.state}`;
-
-  useEffect(() => {
-    if (latestStatement?.rawText) {
-      setRawText(latestStatement.rawText as string);
-    }
-  }, [latestStatement?.id, latestStatement?.rawText]);
 
   useEffect(() => {
     if (!analysis) return;
@@ -172,20 +143,6 @@ export const VictimStatementPage = () => {
   }, [location.search]);
 
   useEffect(() => {
-    const onDocumentClick = (event: MouseEvent) => {
-      if (!stationPickerRef.current) return;
-      if (!stationPickerRef.current.contains(event.target as Node)) {
-        setStationPickerOpen(false);
-      }
-    };
-
-    document.addEventListener("mousedown", onDocumentClick);
-    return () => {
-      document.removeEventListener("mousedown", onDocumentClick);
-    };
-  }, []);
-
-  useEffect(() => {
     const loadStations = async () => {
       setStationsLoading(true);
       try {
@@ -202,7 +159,7 @@ export const VictimStatementPage = () => {
           : [];
 
         setStations(rows);
-        if (!selectedStationId && rows[0]?.id) {
+        if (rows[0]?.id) {
           setSelectedStationId(rows[0].id);
         }
       } catch (e: unknown) {
@@ -241,10 +198,7 @@ export const VictimStatementPage = () => {
           | undefined) ?? null;
 
       setAnalysis({
-        statement:
-          statementFromClassification ??
-          (latestStatement as Record<string, unknown> | null) ??
-          null,
+        statement: statementFromClassification ?? null,
         classification: classificationData as Record<string, unknown>,
         resolution: resolutionData as Record<string, unknown>,
         rights: rightsData as Record<string, unknown>,
@@ -381,6 +335,96 @@ export const VictimStatementPage = () => {
     }
   };
 
+  const handleLoadLatestSavedStatement = async () => {
+    setPageError(null);
+    setLoadingSavedStatement(true);
+    try {
+      const data = (await statementService.getLatest()) as {
+        id?: string;
+        rawText?: string | null;
+      } | null;
+
+      if (!data?.id || !String(data.rawText ?? "").trim()) {
+        setLoadedSavedStatement(null);
+        setPageError("No previously saved statement found.");
+        return;
+      }
+
+      setLoadedSavedStatement(data);
+      setRawText(String(data.rawText ?? ""));
+    } catch (e: unknown) {
+      const msg =
+        (e as any)?.response?.data?.message ??
+        (e instanceof Error
+          ? e.message
+          : "Unable to load your saved statement right now.");
+      setPageError(String(msg));
+    } finally {
+      setLoadingSavedStatement(false);
+    }
+  };
+
+  const handleClearLoadedStatement = () => {
+    setRawText("");
+    setLoadedSavedStatement(null);
+    setPageError(null);
+  };
+
+  const handleSubmitGeneralComplaint = async () => {
+    setPageError(null);
+    setComplaintSuccess(null);
+
+    if (!activeStatementId) {
+      setPageError(
+        "Please save and analyze a statement (or load one) before submitting complaint.",
+      );
+      return;
+    }
+
+    if (!selectedStationId) {
+      setPageError("Please select a registered police station.");
+      return;
+    }
+
+    if (!signatureDataUrl) {
+      setPageError(
+        "Please upload your digital signature before complaint submission.",
+      );
+      return;
+    }
+
+    setSubmittingComplaint(true);
+    try {
+      const result = await statementService.submitToStation({
+        statementId: activeStatementId,
+        stationId: selectedStationId,
+        signatureDataUrl,
+      });
+
+      const ref =
+        result.fir.firNumber ?? result.fir.acknowledgmentNo ?? result.fir.id;
+      const stationName =
+        result.fir.station?.name ??
+        stations.find((row) => row.id === selectedStationId)?.name ??
+        "selected station";
+      setComplaintSuccess(
+        result.alreadySubmitted
+          ? `This complaint is already in ${stationName} queue. Reference: ${ref}.`
+          : `General complaint submitted to ${stationName}. Reference: ${ref}.`,
+      );
+      await reload();
+    } catch (e: unknown) {
+      const msg =
+        (e as any)?.response?.data?.message ??
+        (e instanceof Error
+          ? e.message
+          : "Could not submit general complaint right now.");
+      setPageError(String(msg));
+    } finally {
+      setSubmittingComplaint(false);
+    }
+  };
+
   const handleTextSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!accusedPersonName.trim()) {
@@ -441,49 +485,6 @@ export const VictimStatementPage = () => {
       setPageError(String(msg));
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleSendToStation = async () => {
-    setPageError(null);
-    setSendSuccess(null);
-
-    if (!activeStatementId) {
-      setPageError(
-        "Please save and analyze your statement first, then send it to a police station.",
-      );
-      return;
-    }
-
-    if (!selectedStationId) {
-      setPageError("Please select a registered police station.");
-      return;
-    }
-
-    setSendingToStation(true);
-    try {
-      const result = await statementService.submitToStation({
-        statementId: activeStatementId,
-        stationId: selectedStationId,
-      });
-
-      const firRef =
-        result.fir.firNumber ?? result.fir.acknowledgmentNo ?? result.fir.id;
-      setSendSuccess(
-        result.alreadySubmitted
-          ? `This statement is already linked to FIR ${firRef}.`
-          : `Statement sent successfully to the selected station. FIR reference: ${firRef}.`,
-      );
-      await reload();
-    } catch (e: unknown) {
-      const msg =
-        (e as any)?.response?.data?.message ??
-        (e instanceof Error
-          ? e.message
-          : "Could not send statement to police station.");
-      setPageError(String(msg));
-    } finally {
-      setSendingToStation(false);
     }
   };
 
@@ -856,14 +857,88 @@ export const VictimStatementPage = () => {
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: 8,
+                    justifyContent: "space-between",
+                    gap: 12,
                     color: "#FF9933",
                     fontSize: 12,
                     marginBottom: 6,
                     fontWeight: 700,
                   }}
                 >
-                  <Edit3 size={14} /> STATEMENT
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                    }}
+                  >
+                    <Edit3 size={14} /> STATEMENT
+                  </span>
+                  <span
+                    style={{ display: "inline-flex", gap: 8, flexWrap: "wrap" }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void handleLoadLatestSavedStatement()}
+                      disabled={loadingSavedStatement || saving}
+                      style={{
+                        background: "rgba(255,255,255,0.08)",
+                        color: "#e2e8f0",
+                        border: "1px solid rgba(255,255,255,0.15)",
+                        borderRadius: 10,
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
+                        cursor:
+                          loadingSavedStatement || saving
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity: loadingSavedStatement || saving ? 0.6 : 1,
+                      }}
+                    >
+                      <RefreshCw
+                        size={13}
+                        className={
+                          loadingSavedStatement ? "animate-spin" : undefined
+                        }
+                      />
+                      {loadingSavedStatement
+                        ? "Loading..."
+                        : "Refresh Statement"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearLoadedStatement}
+                      disabled={
+                        loadingSavedStatement ||
+                        (!loadedSavedStatement && !rawText.trim())
+                      }
+                      style={{
+                        background: "rgba(239,68,68,0.12)",
+                        color: "#fecaca",
+                        border: "1px solid rgba(239,68,68,0.35)",
+                        borderRadius: 10,
+                        padding: "8px 12px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor:
+                          loadingSavedStatement ||
+                          (!loadedSavedStatement && !rawText.trim())
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          loadingSavedStatement ||
+                          (!loadedSavedStatement && !rawText.trim())
+                            ? 0.6
+                            : 1,
+                      }}
+                    >
+                      Clear
+                    </button>
+                  </span>
                 </div>
                 <textarea
                   value={rawText}
@@ -1032,9 +1107,12 @@ export const VictimStatementPage = () => {
             <div
               style={{
                 display: "flex",
-                gap: 10,
-                flexWrap: "wrap",
+                flexDirection: "column",
+                gap: 16,
+                minWidth: 300,
+                flex: "1 1 380px",
                 alignItems: "flex-end",
+                justifyContent: "flex-end",
               }}
             >
               <input
@@ -1044,170 +1122,214 @@ export const VictimStatementPage = () => {
                 onChange={handleSignatureFileChange}
                 style={{ display: "none" }}
               />
-              <button
-                type="button"
-                onClick={() => signatureInputRef.current?.click()}
-                disabled={pdfLoading || saving || isLoading || analysisLoading}
+
+              {/* Top Row: Workspace Info & Actions */}
+              <div
                 style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: "#e2e8f0",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: 12,
-                  padding: "12px 16px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor:
-                    pdfLoading || saving || isLoading || analysisLoading
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity:
-                    pdfLoading || saving || isLoading || analysisLoading
-                      ? 0.6
-                      : 1,
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  justifyContent: "flex-end",
+                  width: "100%",
                 }}
               >
-                Upload Signature Photo
-              </button>
+                {Boolean(analysis?.statement?.id as string | undefined) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      goClassify(String(analysis?.statement?.id ?? ""))
+                    }
+                    style={{
+                      background: "rgba(255,255,255,0.06)",
+                      color: "#e2e8f0",
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: 12,
+                      padding: "10px 14px",
+                      fontWeight: 700,
+                      fontSize: 13,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    <FileSearch size={16} />
+                    Detailed Mapping
+                  </button>
+                )}
 
-              {signatureDataUrl && (
                 <button
                   type="button"
-                  onClick={clearSignature}
-                  style={{
-                    background: "rgba(239,68,68,0.12)",
-                    color: "#fecaca",
-                    border: "1px solid rgba(239,68,68,0.35)",
-                    borderRadius: 12,
-                    padding: "12px 14px",
-                    fontWeight: 700,
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  Remove Signature
-                </button>
-              )}
-
-              {signatureFileName && (
-                <div
-                  style={{
-                    color: "#86efac",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    maxWidth: 220,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    alignSelf: "center",
-                  }}
-                  title={signatureFileName}
-                >
-                  Signature: {signatureFileName}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleDownloadPdf}
-                disabled={
-                  pdfLoading ||
-                  saving ||
-                  isLoading ||
-                  analysisLoading ||
-                  refreshingWorkspace
-                }
-                style={{
-                  background: "linear-gradient(135deg, #f97316, #dc2626)",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "12px 16px",
-                  fontWeight: 800,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor:
-                    pdfLoading || saving || isLoading || analysisLoading
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity: pdfLoading ? 0.7 : 1,
-                }}
-              >
-                <Download size={16} />
-                {pdfLoading ? "Preparing PDF..." : "Download Statement PDF"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => void handleRefreshWorkspace()}
-                disabled={
-                  saving ||
-                  isLoading ||
-                  analysisLoading ||
-                  refreshingWorkspace ||
-                  !analysis
-                }
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: "#e2e8f0",
-                  border: "1px solid rgba(255,255,255,0.15)",
-                  borderRadius: 12,
-                  padding: "12px 16px",
-                  fontWeight: 700,
-                  fontSize: 13,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  cursor:
+                  onClick={() => void handleRefreshWorkspace()}
+                  disabled={
                     saving ||
                     isLoading ||
                     analysisLoading ||
                     refreshingWorkspace ||
                     !analysis
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity:
-                    saving ||
-                    isLoading ||
-                    analysisLoading ||
-                    refreshingWorkspace ||
-                    !analysis
-                      ? 0.6
-                      : 1,
-                }}
-              >
-                <RefreshCw
-                  size={16}
-                  className={refreshingWorkspace ? "animate-spin" : undefined}
-                />
-                {refreshingWorkspace ? "Refreshing..." : "Refresh Section"}
-              </button>
-
-              {Boolean(analysis?.statement?.id as string | undefined) && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    goClassify(String(analysis?.statement?.id ?? ""))
                   }
                   style={{
                     background: "rgba(255,255,255,0.06)",
                     color: "#e2e8f0",
                     border: "1px solid rgba(255,255,255,0.15)",
                     borderRadius: 12,
-                    padding: "12px 16px",
+                    padding: "10px 14px",
                     fontWeight: 700,
                     fontSize: 13,
                     display: "flex",
                     alignItems: "center",
                     gap: 8,
-                    cursor: "pointer",
+                    cursor:
+                      saving ||
+                      isLoading ||
+                      analysisLoading ||
+                      refreshingWorkspace ||
+                      !analysis
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity:
+                      saving ||
+                      isLoading ||
+                      analysisLoading ||
+                      refreshingWorkspace ||
+                      !analysis
+                        ? 0.6
+                        : 1,
+                    transition: "all 0.2s",
                   }}
                 >
-                  <FileSearch size={16} />
-                  Open Detailed Mapping
+                  <RefreshCw
+                    size={16}
+                    className={refreshingWorkspace ? "animate-spin" : undefined}
+                  />
+                  {refreshingWorkspace ? "Refreshing..." : "Refresh Workspace"}
                 </button>
-              )}
+              </div>
+
+              {/* Bottom Row: Signature & PDF Download */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  flexWrap: "wrap",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  width: "100%",
+                }}
+              >
+                {/* Signature Block */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "rgba(0,0,0,0.25)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: 12,
+                    padding: "4px 4px 4px 12px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: signatureFileName ? "#86efac" : "#94a3b8",
+                      maxWidth: 120,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                    title={signatureFileName ?? "No signature"}
+                  >
+                    {signatureFileName
+                      ? `Sig: ${signatureFileName}`
+                      : "No signature"}
+                  </span>
+
+                  <button
+                    type="button"
+                    onClick={() => signatureInputRef.current?.click()}
+                    disabled={
+                      pdfLoading || saving || isLoading || analysisLoading
+                    }
+                    style={{
+                      background: "rgba(255,255,255,0.1)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      padding: "6px 12px",
+                      fontWeight: 700,
+                      fontSize: 12,
+                      cursor:
+                        pdfLoading || saving || isLoading || analysisLoading
+                          ? "not-allowed"
+                          : "pointer",
+                      opacity:
+                        pdfLoading || saving || isLoading || analysisLoading
+                          ? 0.6
+                          : 1,
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {signatureDataUrl ? "Change" : "Upload"}
+                  </button>
+
+                  {signatureDataUrl && (
+                    <button
+                      type="button"
+                      onClick={clearSignature}
+                      style={{
+                        background: "transparent",
+                        color: "#fca5a5",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "6px 8px",
+                        fontWeight: 700,
+                        fontSize: 12,
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={
+                    pdfLoading ||
+                    saving ||
+                    isLoading ||
+                    analysisLoading ||
+                    refreshingWorkspace
+                  }
+                  style={{
+                    background: "linear-gradient(135deg, #f97316, #dc2626)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "10px 18px",
+                    fontWeight: 800,
+                    fontSize: 14,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor:
+                      pdfLoading || saving || isLoading || analysisLoading
+                        ? "not-allowed"
+                        : "pointer",
+                    opacity: pdfLoading ? 0.7 : 1,
+                    boxShadow: "0 4px 12px rgba(220, 38, 38, 0.25)",
+                    transition: "all 0.2s",
+                  }}
+                >
+                  <Download size={18} />
+                  {pdfLoading ? "Preparing PDF..." : "Download Report"}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1256,288 +1378,130 @@ export const VictimStatementPage = () => {
               <div style={previewValueStyle}>{user?.name ?? "Victim User"}</div>
             </div>
           </div>
-        </motion.div>
 
-        <motion.div
-          variants={item}
-          whileHover={{ y: -2 }}
-          style={{
-            marginTop: 20,
-            background: "linear-gradient(145deg, #0b0f19, #111827)",
-            border: "1px solid rgba(148,163,184,0.25)",
-            borderRadius: 18,
-            padding: 18,
-          }}
-        >
           <div
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
+              marginTop: 14,
+              borderTop: "1px solid rgba(148,163,184,0.2)",
+              paddingTop: 14,
+              display: "grid",
+              gap: 10,
             }}
           >
-            <div>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  color: "#93c5fd",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                }}
-              >
-                <Building2 size={14} /> Station Dispatch
-              </div>
-              <p style={{ margin: "8px 0 0", color: "#cbd5e1", fontSize: 14 }}>
-                Choose a registered police station and dispatch this statement
-                for officer review and FIR registration.
-              </p>
-            </div>
-
             <div
               style={{
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
-                alignItems: "flex-end",
-                width: "100%",
-                maxWidth: 820,
+                color: "#93c5fd",
+                fontSize: 12,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
               }}
             >
-              <div
-                ref={stationPickerRef}
+              General Complaint Submission
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(220px, 1fr) auto",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <select
+                value={selectedStationId}
+                onChange={(e) => setSelectedStationId(e.target.value)}
+                disabled={stationsLoading || submittingComplaint}
                 style={{
-                  minWidth: 320,
-                  flex: "1 1 420px",
-                  display: "grid",
-                  gap: 8,
-                  position: "relative",
+                  ...inputStyle,
+                  height: 46,
+                  padding: "0 12px",
                 }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    background: "rgba(15,23,42,0.9)",
-                    border: "1px solid rgba(59,130,246,0.28)",
-                    borderRadius: 10,
-                    padding: "9px 10px",
-                  }}
-                >
-                  <Search size={14} color="#93c5fd" />
-                  <input
-                    value={stationQuery}
-                    onChange={(e) => setStationQuery(e.target.value)}
-                    placeholder="Filter by station name, district, or code"
-                    disabled={
-                      stationsLoading ||
-                      sendingToStation ||
-                      stations.length === 0
-                    }
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      border: "none",
-                      outline: "none",
-                      color: "#fff",
-                      fontSize: 13,
-                    }}
-                  />
-                </div>
-
-                <div
-                  style={{
-                    position: "relative",
-                    background:
-                      "linear-gradient(135deg, rgba(30,41,59,0.95), rgba(15,23,42,0.95))",
-                    border: "1px solid rgba(147,197,253,0.35)",
-                    borderRadius: 12,
-                    boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setStationPickerOpen((open) => !open)}
-                    disabled={
-                      stationsLoading ||
-                      sendingToStation ||
-                      stationOptions.length === 0
-                    }
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      padding: "12px 38px 12px 12px",
-                      fontSize: 14,
-                      fontWeight: 700,
-                      textAlign: "left",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {selectedStation
-                      ? formatStationLine(selectedStation)
-                      : "Select a registered police station"}
-                  </button>
-                  <ChevronDown
-                    size={16}
-                    color="#93c5fd"
-                    style={{
-                      position: "absolute",
-                      right: 12,
-                      top: "50%",
-                      transform: stationPickerOpen
-                        ? "translateY(-50%) rotate(180deg)"
-                        : "translateY(-50%)",
-                      pointerEvents: "none",
-                      transition: "transform 0.2s ease",
-                    }}
-                  />
-
-                  {stationPickerOpen && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        left: 0,
-                        right: 0,
-                        top: "calc(100% + 8px)",
-                        borderRadius: 12,
-                        background: "#0b1220",
-                        border: "1px solid rgba(147,197,253,0.35)",
-                        boxShadow: "0 12px 28px rgba(0,0,0,0.45)",
-                        zIndex: 25,
-                        maxHeight: 220,
-                        overflowY: "auto",
-                      }}
-                    >
-                      {stationOptions.length === 0 ? (
-                        <div
-                          style={{
-                            padding: "10px 12px",
-                            color: "#93c5fd",
-                            fontSize: 13,
-                          }}
-                        >
-                          No station matches your filter.
-                        </div>
-                      ) : (
-                        stationOptions.map((station) => {
-                          const active = station.id === selectedStationId;
-                          return (
-                            <button
-                              key={station.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedStationId(station.id);
-                                setStationPickerOpen(false);
-                              }}
-                              style={{
-                                width: "100%",
-                                textAlign: "left",
-                                border: "none",
-                                cursor: "pointer",
-                                background: active
-                                  ? "rgba(59,130,246,0.28)"
-                                  : "transparent",
-                                color: active ? "#fff" : "#dbeafe",
-                                padding: "10px 12px",
-                                borderBottom:
-                                  "1px solid rgba(148,163,184,0.14)",
-                                fontWeight: active ? 700 : 500,
-                                fontSize: 13,
-                              }}
-                            >
-                              {formatStationLine(station)}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <p
-                  style={{
-                    margin: 0,
-                    color: "#93c5fd",
-                    fontSize: 12,
-                  }}
-                >
-                  {selectedStation
-                    ? `Selected station: ${selectedStation.name}${selectedStation.stationCode ? ` (${selectedStation.stationCode})` : ""}`
-                    : "Select a station to continue."}
-                </p>
-              </div>
+                {stations.length === 0 ? (
+                  <option value="">No station available</option>
+                ) : (
+                  stations.map((station) => (
+                    <option key={station.id} value={station.id}>
+                      {station.name}
+                      {station.stationCode
+                        ? ` - ${station.stationCode}`
+                        : ""}, {station.district}, {station.state}
+                    </option>
+                  ))
+                )}
+              </select>
 
               <button
                 type="button"
-                onClick={() => void handleSendToStation()}
+                onClick={() => void handleSubmitGeneralComplaint()}
                 disabled={
-                  sendingToStation ||
+                  submittingComplaint ||
                   stationsLoading ||
                   !selectedStationId ||
-                  !activeStatementId
+                  !activeStatementId ||
+                  !signatureDataUrl
                 }
                 style={{
                   background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
                   color: "#fff",
                   border: "none",
                   borderRadius: 12,
-                  padding: "12px 18px",
-                  height: 46,
-                  whiteSpace: "nowrap",
-                  alignSelf: "flex-end",
+                  padding: "12px 16px",
                   fontWeight: 800,
-                  fontSize: 14,
+                  fontSize: 13,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                   cursor:
-                    sendingToStation ||
+                    submittingComplaint ||
                     stationsLoading ||
                     !selectedStationId ||
-                    !activeStatementId
+                    !activeStatementId ||
+                    !signatureDataUrl
                       ? "not-allowed"
                       : "pointer",
                   opacity:
-                    sendingToStation ||
+                    submittingComplaint ||
                     stationsLoading ||
                     !selectedStationId ||
-                    !activeStatementId
-                      ? 0.7
+                    !activeStatementId ||
+                    !signatureDataUrl
+                      ? 0.6
                       : 1,
                 }}
               >
-                {sendingToStation ? "Sending..." : "Send Statement"}
+                <Send size={15} />
+                {submittingComplaint ? "Submitting..." : "Submit Complaint"}
               </button>
             </div>
-          </div>
 
-          <p
-            style={{
-              margin: "10px 0 0",
-              fontSize: 12,
-              color: activeStatementId ? "#86efac" : "#fbbf24",
-              fontWeight: 700,
-            }}
-          >
-            {activeStatementId
-              ? `Ready to dispatch statement ID ${activeStatementId}.`
-              : "No analyzed statement available yet. Save and analyze first."}
-          </p>
-          {sendSuccess && (
-            <p style={{ margin: "6px 0 0", fontSize: 12, color: "#93c5fd" }}>
-              {sendSuccess}
-            </p>
-          )}
+            <div
+              style={{
+                color: activeStatementId ? "#86efac" : "#fbbf24",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {activeStatementId
+                ? `Ready to submit statement ID ${activeStatementId}.`
+                : "Save/analyze statement first or use Refresh Statement to load one."}
+            </div>
+            {complaintSuccess && (
+              <div
+                style={{
+                  color: "#93c5fd",
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {complaintSuccess}
+              </div>
+            )}
+          </div>
         </motion.div>
 
         <AnimatePresence>
-          {latestStatement && (
+          {loadedSavedStatement?.rawText && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1570,7 +1534,7 @@ export const VictimStatementPage = () => {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {latestStatement.rawText}
+                {loadedSavedStatement.rawText}
               </p>
             </motion.div>
           )}

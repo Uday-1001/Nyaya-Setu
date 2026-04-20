@@ -24,6 +24,7 @@ const STATUSES: (FIRStatus | "ALL")[] = [
   "Under Review",
   "Document Generated",
   "Signed",
+  "General Review",
 ];
 const PAGE_SIZE = 10;
 const POLL_MS = 30_000;
@@ -47,6 +48,7 @@ const statusClass: Record<string, string> = {
   "Under Review": "text-[#FDE68A]",
   "Document Generated": "text-[#86EFAC]",
   Signed: "text-[#9CA3AF]",
+  "General Review": "text-[#93C5FD]",
 };
 
 export const FIRInbox = () => {
@@ -54,6 +56,8 @@ export const FIRInbox = () => {
   const [status, setStatus] = useState<FIRStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
   const [rows, setRows] = useState<MockFIR[]>([]);
+  const [generalComplaints, setGeneralComplaints] = useState<MockFIR[]>([]);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,14 +65,36 @@ export const FIRInbox = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const intervalRef = useRef<number | null>(null);
 
+  const getHttpStatus = (err: unknown) =>
+    Number((err as { response?: { status?: number } })?.response?.status ?? 0);
+
   const load = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const data = await officerService.listFirs();
-      setRows(data);
+      const [firResult, complaintsResult] = await Promise.allSettled([
+        officerService.listFirs(),
+        officerService.listGeneralComplaints(),
+      ]);
+
+      if (firResult.status === "rejected") {
+        throw firResult.reason;
+      }
+
+      const firRows = firResult.value;
+      let complaintRows: MockFIR[] = [];
+      if (complaintsResult.status === "fulfilled") {
+        complaintRows = complaintsResult.value;
+      } else if (getHttpStatus(complaintsResult.reason) !== 404) {
+        setError("General complaint queue is temporarily unavailable.");
+      }
+
+      setRows(firRows.filter((row) => !row.isGeneralComplaint));
+      setGeneralComplaints(complaintRows);
       setLastUpdated(new Date());
-      setError(null);
+      if (complaintsResult.status === "fulfilled") {
+        setError(null);
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load FIR inbox.",
@@ -120,6 +146,26 @@ export const FIRInbox = () => {
     setUrgency("ALL");
     setStatus("ALL");
     setSearch("");
+  };
+
+  const handleGeneralDecision = async (
+    firId: string,
+    decision: "GENERAL" | "FIR",
+  ) => {
+    setDecidingId(firId);
+    setError(null);
+    try {
+      await officerService.decideGeneralComplaint({ firId, decision });
+      await load(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update complaint decision.",
+      );
+    } finally {
+      setDecidingId(null);
+    }
   };
 
   return (
@@ -174,6 +220,78 @@ export const FIRInbox = () => {
           )}
         </div>
       </motion.div>
+
+      {generalComplaints.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 rounded-2xl border border-[#3B82F6]/35 bg-[#0b1220] p-4"
+        >
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#93C5FD]">
+              General Complaint Review Queue
+            </p>
+            <span className="text-xs text-[#9CA3AF]">
+              {generalComplaints.length} pending
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {generalComplaints.map((complaint) => (
+              <div
+                key={complaint.id}
+                className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-3"
+              >
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                  <div>
+                    <p className="font-mono text-[#F97316] text-xs font-bold">
+                      {complaint.firNo}
+                    </p>
+                    <p className="text-sm text-white font-semibold">
+                      {complaint.victimName}
+                    </p>
+                    <p className="text-xs text-[#9CA3AF] mt-1">
+                      Severity recommendation:{" "}
+                      {complaint.complaintRecommendation ?? complaint.urgency}
+                    </p>
+                    <p className="text-xs text-[#6B7280] mt-1">
+                      Signature on file:{" "}
+                      {complaint.signatureOnFile ? "Yes" : "No"}
+                    </p>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
+                      type="button"
+                      disabled={decidingId === complaint.id}
+                      onClick={() =>
+                        void handleGeneralDecision(complaint.id, "GENERAL")
+                      }
+                      className="rounded-lg border border-[#F59E0B]/40 bg-[#F59E0B]/15 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#FDE68A] disabled:opacity-60"
+                    >
+                      Mark General
+                    </motion.button>
+                    <motion.button
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.96 }}
+                      type="button"
+                      disabled={decidingId === complaint.id}
+                      onClick={() =>
+                        void handleGeneralDecision(complaint.id, "FIR")
+                      }
+                      className="rounded-lg border border-[#16A34A]/40 bg-[#16A34A]/20 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-[#86EFAC] disabled:opacity-60"
+                    >
+                      Convert to FIR
+                    </motion.button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       {/* Filters */}
       <motion.div
