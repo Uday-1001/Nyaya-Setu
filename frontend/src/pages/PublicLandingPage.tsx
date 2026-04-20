@@ -86,11 +86,10 @@ export const PublicLandingPage: React.FC = () => {
             </Link>
 
             {/* Desktop nav */}
-            <nav className="hidden md:flex items-center gap-2 flex-1">
+            <nav className="hidden md:flex items-center gap-2 flex-1 justify-end">
               {[
                 { label: "Features", href: "#features" },
                 { label: "How It Works", href: "#how-it-works" },
-                { label: "BNS 2024", href: "#bns" },
               ].map(({ label, href }) => (
                 <a
                   key={label}
@@ -104,7 +103,7 @@ export const PublicLandingPage: React.FC = () => {
             </nav>
 
             {/* Right CTA group */}
-            <div className="ml-auto flex items-center gap-4">
+            <div className="flex items-center gap-4 md:hidden">
               {/* Burger */}
               <button
                 className="md:hidden p-2 rounded-lg text-slate-400 hover:bg-white/5 transition-colors border-none bg-transparent outline-none cursor-pointer"
@@ -127,7 +126,6 @@ export const PublicLandingPage: React.FC = () => {
               {[
                 { label: "Features", href: "#features" },
                 { label: "How It Works", href: "#how-it-works" },
-                { label: "BNS 2024", href: "#bns" },
                 { label: "Login", href: "/login" },
                 { label: "Get Started", href: "/register/victim" },
               ].map(({ label, href }) => (
@@ -185,7 +183,7 @@ export const PublicLandingPage: React.FC = () => {
                 {[
                   {
                     icon: Scale,
-                    title: "AI-Powered BNS Mapping",
+                    title: "AI-Powered BNS-BNSS Mapping",
                     desc: "Describe the incident in plain language. Our ML engine matches semantics against the Nandhakumar dataset to recommend sections.",
                     tag: "Machine Learning",
                   },

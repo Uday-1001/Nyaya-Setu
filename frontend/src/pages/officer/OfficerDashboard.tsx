@@ -13,6 +13,45 @@ const COUNTDOWN_STEP_SEC = 5;
 
 type DashboardStat = { value: string; label: string; labelHi: string };
 
+const AnimatedNumber = ({ value }: { value: string }) => {
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    const numValue = parseInt(value, 10);
+    if (isNaN(numValue)) {
+      return;
+    }
+
+    let start = display;
+    const end = numValue;
+    const duration = 1200;
+    let startTime: number | null = null;
+    let animationFrameId: number;
+
+    const tick = (now: number) => {
+      if (!startTime) startTime = now;
+      const progress = Math.min((now - startTime) / duration, 1);
+
+      // Use easeOutQuart
+      const easeProgress = 1 - Math.pow(1 - progress, 4);
+      const nextValue = Math.round(start + (end - start) * easeProgress);
+
+      setDisplay(nextValue);
+
+      if (progress < 1) {
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    };
+
+    animationFrameId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [value]);
+
+  const numValue = parseInt(value, 10);
+  if (isNaN(numValue)) return <>{value}</>;
+  return <>{display}</>;
+};
+
 const urgencyOrder: Record<string, number> = {
   CRITICAL: 0,
   HIGH: 1,
@@ -53,17 +92,27 @@ const AnimatedStatCard = ({
   return (
     <motion.div
       variants={fadeUpItem}
-      className={`text-center lg:px-8 relative group rounded-[2xl] p-6 cursor-default transition-colors duration-300 border border-white/[0.05] bg-black/40 hover:bg-white/[0.05] hover:border-white/[0.15] shadow-[0_8px_24px_rgba(0,0,0,0.42)] z-10 ${index > 0 ? "lg:border-l-transparent" : ""}`}
+      whileHover={{ y: -8, scale: 1.02 }}
+      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      className={`text-center lg:px-8 relative group rounded-[2xl] p-6 cursor-default transition-colors duration-300 border border-white/[0.05] bg-black/40 hover:bg-white/[0.08] hover:border-white/[0.2] shadow-[0_8px_24px_rgba(0,0,0,0.42)] hover:shadow-[0_16px_40px_rgba(249,115,22,0.15)] z-10 ${index > 0 ? "lg:border-l-transparent" : ""}`}
     >
       <div className="relative z-20 pointer-events-none flex flex-col items-center justify-center">
-        <div
+        <motion.div
+          initial={{ scale: 0.5, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{
+            delay: index * 0.1 + 0.3,
+            type: "spring",
+            stiffness: 200,
+            damping: 15,
+          }}
           className={`font-black leading-none tabular-nums tracking-tighter ${index === 0 ? "text-[64px]" : "text-[52px]"} ${isAlertCard ? urgencyColor(stat.value) : "text-white"}`}
           style={{
             textShadow: isAlertCard ? "0 0 30px rgba(220,38,38,0.6)" : "none",
           }}
         >
-          {stat.value}
-        </div>
+          <AnimatedNumber value={stat.value} />
+        </motion.div>
 
         <p className="mt-3 text-[11px] font-bold tracking-[0.15em] text-[#9CA3AF] uppercase transition-colors group-hover:text-[#F97316]">
           {stat.label}
@@ -169,7 +218,10 @@ export const OfficerDashboard = () => {
             variants={fadeUpItem}
           >
             <div>
-              <p
+              <motion.p
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.5 }}
                 className="text-[10px] font-bold tracking-[0.3em] text-[#6B7280] uppercase mb-2"
                 style={{
                   background:
@@ -180,15 +232,30 @@ export const OfficerDashboard = () => {
                 }}
               >
                 — Operation Center · लाइव
-              </p>
-              <h1 className="text-3xl font-black text-white tracking-tight drop-shadow-lg">
+              </motion.p>
+              <motion.h1
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  duration: 0.6,
+                  delay: 0.1,
+                  type: "spring",
+                  stiffness: 200,
+                }}
+                className="text-3xl font-black text-white tracking-tight drop-shadow-lg"
+              >
                 Saffron<span className="text-[#F97316]">Dash</span>
-              </h1>
+              </motion.h1>
               {lastUpdated && (
-                <p className="text-[10px] text-[#6B7280] mt-2 font-mono flex items-center gap-2">
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="text-[10px] text-[#6B7280] mt-2 font-mono flex items-center gap-2"
+                >
                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)] animate-pulse" />
                   Live Sync: {lastUpdated.toLocaleTimeString("en-IN")}
-                </p>
+                </motion.p>
               )}
             </div>
 

@@ -41,6 +41,7 @@ import { WatermarkBackground } from "../../components/ui/WatermarkBackground";
 import { useAuthStore } from "../../store/authStore";
 import { authService } from "../../services/authService";
 import { firService } from "../../services/firService";
+import { platformStatsService } from "../../services/platformStatsService";
 import {
   readVictimTheme,
   writeVictimTheme,
@@ -250,22 +251,27 @@ const STATS: Stat[] = [
   {
     value: "1,247",
     numericValue: 1247,
-    label: "FIRs Today",
-    labelHi: "आज की FIR",
+    label: "Total FIRs",
+    labelHi: "कुल FIR",
   },
   {
-    value: "358",
-    numericValue: 358,
+    value: "0",
+    numericValue: 0,
     label: "BNS Sections",
     labelHi: "BNS धाराएं",
   },
   {
-    value: "89",
-    numericValue: 89,
-    label: "Officers Online",
-    labelHi: "अधिकारी ऑनलाइन",
+    value: "0",
+    numericValue: 0,
+    label: "BNSS Sections",
+    labelHi: "BNSS धाराएं",
   },
-  { value: "2", numericValue: 2, label: "Languages", labelHi: "भाषाएं" },
+  {
+    value: "0",
+    numericValue: 0,
+    label: "Active Officers",
+    labelHi: "सक्रिय अधिकारी",
+  },
 ];
 
 const NAV_LINKS = [
@@ -473,6 +479,7 @@ export const LandingHome = () => {
   const [sosOpen, setSosOpen] = useState(false);
   const [sosLoading, setSosLoading] = useState(false);
   const [sosError, setSosError] = useState<string | null>(null);
+  const [stats, setStats] = useState<Stat[]>(STATS);
   const [recentCases, setRecentCases] = useState<DisplayCase[]>([]);
   const [allCases, setAllCases] = useState<DisplayCase[]>([]);
   const [casesLoading, setCasesLoading] = useState(false);
@@ -582,6 +589,47 @@ export const LandingHome = () => {
     };
 
     void loadCases();
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadStats = async () => {
+      try {
+        const data = await platformStatsService.getPublicStats();
+        if (!mounted) return;
+
+        setStats((prev) => [
+          {
+            ...prev[0],
+            value: data.totalFirs.toLocaleString("en-IN"),
+            numericValue: data.totalFirs,
+          },
+          {
+            ...prev[1],
+            value: data.bnsSections.toLocaleString("en-IN"),
+            numericValue: data.bnsSections,
+          },
+          {
+            ...prev[2],
+            value: data.bnssSections.toLocaleString("en-IN"),
+            numericValue: data.bnssSections,
+          },
+          {
+            ...prev[3],
+            value: data.activeOfficers.toLocaleString("en-IN"),
+            numericValue: data.activeOfficers,
+          },
+        ]);
+      } catch {
+        // Keep fallback values if stats endpoint is unavailable.
+      }
+    };
+
+    void loadStats();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const markCaseAsViewed = (firId: string) => {
@@ -2059,7 +2107,7 @@ export const LandingHome = () => {
                 alignItems: "center",
               }}
             >
-              {STATS.map(({ numericValue, label, labelHi }, idx) => (
+              {stats.map(({ numericValue, label, labelHi }, idx) => (
                 <motion.div
                   key={label}
                   whileHover={{ y: -5 }}

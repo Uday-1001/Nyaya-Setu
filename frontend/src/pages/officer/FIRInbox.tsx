@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Eye,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 const URGENCIES: (Urgency | "ALL")[] = [
   "ALL",
@@ -122,19 +123,39 @@ export const FIRInbox = () => {
   };
 
   return (
-    <div>
-      <div className="flex items-start justify-between mb-2">
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="flex items-start justify-between mb-2"
+      >
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-white">
+          <motion.h1
+            initial={{ scale: 0.95 }}
+            animate={{ scale: 1 }}
+            className="text-3xl font-extrabold tracking-tight text-white"
+          >
             Online FIR Inbox
-          </h1>
-          <p className="text-[11px] font-bold tracking-[0.18em] text-[#6B7280] uppercase mt-2">
+          </motion.h1>
+          <motion.p
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+            className="text-[11px] font-bold tracking-[0.18em] text-[#6B7280] uppercase mt-2"
+          >
             — ऑनलाइन एफआईआर इनबॉक्स · Receive, review, and register
-            victim-submitted FIRs
-          </p>
+            complainant-submitted FIRs
+          </motion.p>
         </div>
         <div className="flex flex-col items-end gap-1 mt-1">
-          <button
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             type="button"
             disabled={refreshing || loading}
             onClick={() => void load(true)}
@@ -145,17 +166,22 @@ export const FIRInbox = () => {
               strokeWidth={2.5}
             />
             {refreshing ? "Refreshing…" : "Refresh"}
-          </button>
+          </motion.button>
           {lastUpdated && (
             <p className="text-[9px] text-[#4B5563] font-mono">
               Updated {lastUpdated.toLocaleTimeString("en-IN")}
             </p>
           )}
         </div>
-      </div>
+      </motion.div>
 
       {/* Filters */}
-      <div className="flex flex-wrap items-end gap-3 mb-6 mt-7 text-sm">
+      <motion.div
+        initial={{ opacity: 0, y: -5 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1, duration: 0.2 }}
+        className="flex flex-wrap items-end gap-3 mb-6 mt-7 text-sm"
+      >
         {/* Search */}
         <label className="flex flex-col gap-1 text-[10px] font-bold tracking-widest text-[#6B7280] uppercase flex-1 min-w-[200px]">
           Search
@@ -163,7 +189,7 @@ export const FIRInbox = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="FIR no., BNS section, victim name…"
+              placeholder="FIR no., BNS section, complainant name…"
               className="w-full rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.04)] pl-9 pr-3 py-2 text-sm text-white placeholder:text-[#4B5563]"
             />
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-[#6B7280]" />
@@ -201,19 +227,25 @@ export const FIRInbox = () => {
         </label>
 
         {(urgency !== "ALL" || status !== "ALL" || search) && (
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             type="button"
             onClick={clearFilters}
             className="officer-btn officer-btn-subtle mb-0.5"
           >
             Clear
-          </button>
+          </motion.button>
         )}
-      </div>
+      </motion.div>
 
       {/* Summary bar */}
       {!loading && !error && (
-        <div className="flex items-center gap-4 mb-4 text-[10px] font-bold tracking-widest uppercase text-[#4B5563]">
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="flex items-center gap-4 mb-4 text-[10px] font-bold tracking-widest uppercase text-[#4B5563]"
+        >
           <span>
             {filtered.length} FIR{filtered.length !== 1 ? "s" : ""}
           </span>
@@ -226,7 +258,7 @@ export const FIRInbox = () => {
           <span className="text-[#FDE68A]">
             {rows.filter((r) => r.status === "AI Ready").length} AI Ready
           </span>
-        </div>
+        </motion.div>
       )}
 
       {loading ? (
@@ -239,34 +271,51 @@ export const FIRInbox = () => {
           ))}
         </div>
       ) : error ? (
-        <div className="rounded-xl bg-[#DC2626]/10 border border-[#DC2626]/30 px-4 py-3 text-sm text-[#FCA5A5]">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl bg-[#DC2626]/10 border border-[#DC2626]/30 px-4 py-3 text-sm text-[#FCA5A5]"
+        >
           {error}
-        </div>
+        </motion.div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-6 py-10 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-6 py-10 text-center"
+        >
           <p className="text-[#6B7280] text-sm">
             No FIRs match the current filters.
           </p>
           {(urgency !== "ALL" || status !== "ALL" || search) && (
-            <button
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               type="button"
               onClick={clearFilters}
               className="officer-btn officer-btn-subtle mt-3"
             >
               Clear filters
-            </button>
+            </motion.button>
           )}
-        </div>
+        </motion.div>
       ) : (
-        <>
-          <div className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.04)]">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={page + search + urgency + status}
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-x-auto rounded-xl border border-white/[0.08] bg-[rgba(255,255,255,0.04)]"
+          >
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-white/[0.08]">
                   {[
                     "FIR NO",
                     "BNS SECTION",
-                    "VICTIM",
+                    "COMPLAINANT",
                     "URGENCY",
                     "STATUS",
                     "RECEIVED",
@@ -282,59 +331,76 @@ export const FIRInbox = () => {
                 </tr>
               </thead>
               <tbody>
-                {paged.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b border-white/[0.06] hover:bg-white/[0.03] transition-colors"
-                  >
-                    <td className="px-4 py-3">
-                      <Link
-                        to={`/officer/fir/${r.id}`}
-                        className="font-mono text-sm font-bold text-[#F97316] hover:underline"
-                      >
-                        {r.firNo}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-white font-semibold max-w-[220px]">
-                      <span className="text-[#9CA3AF]">{r.bnsCode}</span>
-                      <span className="ml-1 text-white text-xs">
-                        {r.bnsTitle}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-[#D1D5DB] text-xs">
-                      {r.victimName}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase ${urgencyLabel[r.urgency] ?? "text-[#9CA3AF]"}`}
-                      >
+                <AnimatePresence>
+                  {paged.map((r, idx) => (
+                    <motion.tr
+                      key={r.id}
+                      initial={{ opacity: 0, y: 10, scale: 0.99 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.99 }}
+                      transition={{
+                        delay: idx * 0.04,
+                        type: "spring",
+                        stiffness: 250,
+                        damping: 20,
+                      }}
+                      whileHover={{
+                        backgroundColor: "rgba(255,255,255,0.06)",
+                        scale: 1.01,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+                        transition: { duration: 0.2 },
+                      }}
+                      className="border-b border-white/[0.06] transition-colors relative z-10"
+                    >
+                      <td className="px-4 py-3">
+                        <Link
+                          to={`/officer/fir/${r.id}`}
+                          className="font-mono text-sm font-bold text-[#F97316] hover:underline"
+                        >
+                          {r.firNo}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-3 text-white font-semibold max-w-[220px]">
+                        <span className="text-[#9CA3AF]">{r.bnsCode}</span>
+                        <span className="ml-1 text-white text-xs">
+                          {r.bnsTitle}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[#D1D5DB] text-xs">
+                        {r.victimName}
+                      </td>
+                      <td className="px-4 py-3">
                         <span
-                          className={`inline-block w-1.5 h-1.5 rounded-full ${urgencyDot[r.urgency] ?? "bg-[#6B7280]"}`}
-                        />
-                        {r.urgency}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs font-semibold ${statusClass[r.status] ?? "text-[#9CA3AF]"}`}
-                      >
-                        {r.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-[#6B7280]">
-                      {r.received}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <Link
-                        to={`/officer/fir/${r.id}`}
-                        className="inline-flex items-center gap-1 text-xs font-bold text-[#F97316] hover:underline"
-                      >
-                        <Eye className="h-3.5 w-3.5" />
-                        Open
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                          className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase ${urgencyLabel[r.urgency] ?? "text-[#9CA3AF]"}`}
+                        >
+                          <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${urgencyDot[r.urgency] ?? "bg-[#6B7280]"}`}
+                          />
+                          {r.urgency}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`text-xs font-semibold ${statusClass[r.status] ?? "text-[#9CA3AF]"}`}
+                        >
+                          {r.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-[#6B7280]">
+                        {r.received}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          to={`/officer/fir/${r.id}`}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-[#F97316] hover:underline"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          Open
+                        </Link>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               </tbody>
             </table>
 
@@ -346,31 +412,35 @@ export const FIRInbox = () => {
                   : "0 results"}
               </span>
               <span className="flex gap-2">
-                <button
+                <motion.button
+                  whileHover={{ x: -2 }}
+                  whileTap={{ scale: 0.95 }}
                   type="button"
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1}
                   className="officer-btn officer-btn-subtle px-2.5 py-1.5"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" /> Prev
-                </button>
+                </motion.button>
                 <span className="px-2 py-1 text-white">
                   {page}/{totalPages}
                 </span>
-                <button
+                <motion.button
+                  whileHover={{ x: 2 }}
+                  whileTap={{ scale: 0.95 }}
                   type="button"
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                   className="officer-btn officer-btn-subtle px-2.5 py-1.5"
                 >
                   Next <ChevronRight className="h-3.5 w-3.5" />
-                </button>
+                </motion.button>
               </span>
             </div>
-          </div>
-        </>
+          </motion.div>
+        </AnimatePresence>
       )}
-    </div>
+    </motion.div>
   );
 };
 

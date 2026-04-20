@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { FileText, BadgeCheck, Users } from "lucide-react";
+import { platformStatsService } from "../../../services/platformStatsService";
 
 /* ══════════════════════════════════════════════════════════════════
    ASHOKA CHAKRA — 24-spoke wheel (from Indian national flag)
@@ -258,33 +259,55 @@ const Stat = ({
   icon: Icon,
   index = 0,
 }: {
-  value: string;
+  value: number;
   label: string;
   icon: React.ElementType;
   index?: number;
-}) => (
-  <div
-    className="flex flex-col gap-1 transition-all duration-500 group"
-    style={{
-      animation: `slideInUp 0.6s ease-out ${index * 0.15}s both`,
-    }}
-  >
-    <div className="flex items-center gap-2">
-      <div className="w-6 h-6 rounded-md flex items-center justify-center bg-[#ea580c]/10">
-        <Icon className="w-3.5 h-3.5 text-[#ea580c]" />
-      </div>
-      <div className="text-white font-extrabold text-2xl tracking-tight leading-none group-hover:text-[#ff9933] transition-colors">
-        {value}
-      </div>
-    </div>
+}) => {
+  const [display, setDisplay] = useState(0);
+
+  useEffect(() => {
+    const start = display;
+    const end = value;
+    const duration = 900;
+    const startTime = performance.now();
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const nextValue = Math.round(start + (end - start) * progress);
+      setDisplay(nextValue);
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      }
+    };
+
+    requestAnimationFrame(tick);
+  }, [value]);
+
+  return (
     <div
-      className="text-[12px] font-medium tracking-wide pl-8"
-      style={{ color: "#64748b" }}
+      className="flex flex-col gap-1 transition-all duration-500 group"
+      style={{
+        animation: `slideInUp 0.6s ease-out ${index * 0.15}s both`,
+      }}
     >
-      {label}
+      <div className="flex items-center gap-2">
+        <div className="w-6 h-6 rounded-md flex items-center justify-center bg-[#ea580c]/10">
+          <Icon className="w-3.5 h-3.5 text-[#ea580c]" />
+        </div>
+        <div className="text-white font-extrabold text-2xl tracking-tight leading-none group-hover:text-[#ff9933] transition-colors">
+          {display.toLocaleString("en-IN")}
+        </div>
+      </div>
+      <div
+        className="text-[12px] font-medium tracking-wide pl-8"
+        style={{ color: "#64748b" }}
+      >
+        {label}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /* ══════════════════════════════════════════════════════════════════
    AuthLayout — Indian Government / Judiciary Split Layout
@@ -305,6 +328,36 @@ export const AuthLayout = ({
   variant = "default",
 }: AuthLayoutProps) => {
   const isMinimal = variant === "minimal";
+  const [liveStats, setLiveStats] = useState({
+    totalFirs: 1247,
+    bnsSections: 358,
+    bnssSections: 0,
+    activeOfficers: 0,
+  });
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadStats = async () => {
+      try {
+        const stats = await platformStatsService.getPublicStats();
+        if (!mounted) return;
+        setLiveStats({
+          totalFirs: stats.totalFirs,
+          bnsSections: stats.bnsSections,
+          bnssSections: stats.bnssSections,
+          activeOfficers: stats.activeOfficers,
+        });
+      } catch {
+        // Keep fallbacks when stats endpoint is not reachable.
+      }
+    };
+
+    void loadStats();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <>
@@ -552,26 +605,26 @@ export const AuthLayout = ({
               {!isMinimal && (
                 <div className="grid grid-cols-2 gap-y-10 gap-x-8 mt-12 max-w-[340px]">
                   <Stat
-                    value="1,247"
-                    label="FIRs Filed Today"
+                    value={liveStats.totalFirs}
+                    label="Total FIRs"
                     icon={FileText}
                     index={0}
                   />
                   <Stat
-                    value="89"
-                    label="Officers Online"
+                    value={liveStats.activeOfficers}
+                    label="Active Officers"
                     icon={BadgeCheck}
                     index={1}
                   />
                   <Stat
-                    value="358"
+                    value={liveStats.bnsSections}
                     label="BNS Sections"
                     icon={FileText}
                     index={2}
                   />
                   <Stat
-                    value="6"
-                    label="Language Support"
+                    value={liveStats.bnssSections}
+                    label="BNSS Sections"
                     icon={Users}
                     index={3}
                   />

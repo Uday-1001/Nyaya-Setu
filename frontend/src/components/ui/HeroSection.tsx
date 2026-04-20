@@ -91,7 +91,7 @@ export const HeroSection: React.FC = () => {
               End-to-end encrypted
             </span>
             <span className="opacity-40">·</span>
-            <span>BNS 2024 Compliant</span>
+            <span>BNS-BNSS Compliant</span>
             <span className="opacity-40">·</span>
             <span>2 Regional Languages</span>
           </div>

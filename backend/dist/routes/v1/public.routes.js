@@ -7,6 +7,7 @@ const auth_controller_3 = require("../../controllers/victim/auth.controller");
 const asyncHandler_1 = require("../../utils/asyncHandler");
 const bns_controller_1 = require("../../controllers/public/bns.controller");
 const crimeClassification_controller_1 = require("../../controllers/public/crimeClassification.controller");
+const platform_controller_1 = require("../../controllers/public/platform.controller");
 exports.publicRoutes = [
     // Auth
     { method: "POST", path: "/api/auth/login", handler: auth_controller_1.loginController },
@@ -70,5 +71,10 @@ exports.publicRoutes = [
         method: "POST",
         path: "/api/classify/update",
         handler: (0, asyncHandler_1.asyncHandler)(crimeClassification_controller_1.CrimeClassificationController.updateScore),
+    },
+    {
+        method: "GET",
+        path: "/api/platform/stats",
+        handler: (0, asyncHandler_1.asyncHandler)(platform_controller_1.publicPlatformStatsController),
     },
 ];

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 const AshokaMark = () => (
   <svg
-    className="absolute bottom-6 right-6 w-[min(30vw,300px)] h-[min(30vw,300px)] pointer-events-none select-none text-white opacity-[0.03] z-0"
+    className="absolute bottom-6 right-6 w-[min(30vw,300px)] h-[min(30vw,300px)] pointer-events-none select-none text-white opacity-[0.03] z-0 animate-[spin_180s_linear_infinite]"
     viewBox="0 0 100 100"
     fill="none"
     aria-hidden

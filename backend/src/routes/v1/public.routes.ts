@@ -11,6 +11,7 @@ import type { RouteDefinition } from "../types";
 import { asyncHandler } from "../../utils/asyncHandler";
 import { PublicBNSController } from "../../controllers/public/bns.controller";
 import { CrimeClassificationController } from "../../controllers/public/crimeClassification.controller";
+import { publicPlatformStatsController } from "../../controllers/public/platform.controller";
 
 export const publicRoutes: RouteDefinition[] = [
   // Auth
@@ -77,5 +78,10 @@ export const publicRoutes: RouteDefinition[] = [
     method: "POST",
     path: "/api/classify/update",
     handler: asyncHandler(CrimeClassificationController.updateScore),
+  },
+  {
+    method: "GET",
+    path: "/api/platform/stats",
+    handler: asyncHandler(publicPlatformStatsController),
   },
 ];
