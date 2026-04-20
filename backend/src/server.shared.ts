@@ -1,37 +1,42 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { env, isProduction } from './config/env';
-import { ApiError } from './utils/ApiError';
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { env, isProduction } from "./config/env";
+import { ApiError } from "./utils/ApiError";
 
-export const sendJson = (res: ServerResponse, statusCode: number, body: unknown) => {
+export const sendJson = (
+  res: ServerResponse,
+  statusCode: number,
+  body: unknown,
+) => {
   res.statusCode = statusCode;
-  res.setHeader('Content-Type', 'application/json');
+  res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(body));
 };
 
 const localhostOriginOk = (o: string) =>
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(o);
 
-const normalize = (value: string) => value.trim().replace(/\/$/, '');
+const normalize = (value: string) => value.trim().replace(/\/$/, "");
 
 const wildcardOriginMatch = (origin: string, pattern: string) => {
   const normalizedOrigin = normalize(origin);
   const normalizedPattern = normalize(pattern);
 
-  if (!normalizedPattern.includes('*')) {
+  if (!normalizedPattern.includes("*")) {
     return normalizedOrigin === normalizedPattern;
   }
 
   const escaped = normalizedPattern
-    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*');
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*");
 
-  return new RegExp(`^${escaped}$`, 'i').test(normalizedOrigin);
+  return new RegExp(`^${escaped}$`, "i").test(normalizedOrigin);
 };
 
 const originIsAllowed = (origin: string | undefined): origin is string => {
   if (!origin) return false;
   if (wildcardOriginMatch(origin, env.appUrl)) return true;
-  if (env.corsOrigins.some((allowed) => wildcardOriginMatch(origin, allowed))) return true;
+  if (env.corsOrigins.some((allowed) => wildcardOriginMatch(origin, allowed)))
+    return true;
   /* Vite often runs on 5174–5177; echoing the real Origin is required for credentialed requests. */
   if (!isProduction && localhostOriginOk(origin)) return true;
   return false;
@@ -40,12 +45,15 @@ const originIsAllowed = (origin: string | undefined): origin is string => {
 export const setCors = (req: IncomingMessage, res: ServerResponse) => {
   const origin = req.headers.origin;
   if (originIsAllowed(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader("Access-Control-Allow-Origin", origin);
   }
 
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
 };
 
 export type ParsedMultipart = {
@@ -63,24 +71,26 @@ const readRequestBuffer = async (req: IncomingMessage) => {
   return Buffer.concat(chunks);
 };
 
-export const parseMultipartBody = async (req: IncomingMessage): Promise<ParsedMultipart> =>
+export const parseMultipartBody = async (
+  req: IncomingMessage,
+): Promise<ParsedMultipart> =>
   (async () => {
-    const ct = req.headers['content-type'] ?? '';
-    if (!ct.includes('multipart/form-data')) {
-      throw new ApiError(400, 'Expected multipart/form-data.');
+    const ct = req.headers["content-type"] ?? "";
+    if (!ct.includes("multipart/form-data")) {
+      throw new ApiError(400, "Expected multipart/form-data.");
     }
 
     const boundaryMatch = ct.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
     const boundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
 
     if (!boundary) {
-      throw new ApiError(400, 'Multipart boundary is missing.');
+      throw new ApiError(400, "Multipart boundary is missing.");
     }
 
     const body = await readRequestBuffer(req);
     const boundaryBuffer = Buffer.from(`--${boundary}`);
     const fields: Record<string, string> = {};
-    let file: ParsedMultipart['file'];
+    let file: ParsedMultipart["file"];
 
     let searchFrom = 0;
     while (searchFrom < body.length) {
@@ -88,24 +98,26 @@ export const parseMultipartBody = async (req: IncomingMessage): Promise<ParsedMu
       if (start === -1) break;
 
       const partStart = start + boundaryBuffer.length;
-      const trailer = body.subarray(partStart, partStart + 2).toString('utf8');
-      if (trailer === '--') break;
+      const trailer = body.subarray(partStart, partStart + 2).toString("utf8");
+      if (trailer === "--") break;
 
       const contentStart = partStart + 2;
       const nextBoundary = body.indexOf(boundaryBuffer, contentStart);
       if (nextBoundary === -1) break;
 
       const part = body.subarray(contentStart, nextBoundary - 2);
-      const headerEnd = part.indexOf(Buffer.from('\r\n\r\n'));
+      const headerEnd = part.indexOf(Buffer.from("\r\n\r\n"));
       if (headerEnd === -1) {
         searchFrom = nextBoundary;
         continue;
       }
 
-      const headerText = part.subarray(0, headerEnd).toString('utf8');
+      const headerText = part.subarray(0, headerEnd).toString("utf8");
       const content = part.subarray(headerEnd + 4);
 
-      const disposition = headerText.match(/content-disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/i);
+      const disposition = headerText.match(
+        /content-disposition:\s*form-data;\s*name="([^"]+)"(?:;\s*filename="([^"]*)")?/i,
+      );
       if (!disposition) {
         searchFrom = nextBoundary;
         continue;
@@ -115,15 +127,16 @@ export const parseMultipartBody = async (req: IncomingMessage): Promise<ParsedMu
       const contentTypeMatch = headerText.match(/content-type:\s*([^\r\n]+)/i);
 
       if (filenameRaw !== undefined) {
-        if (fieldName === 'audio') {
+        if (fieldName === "audio") {
           file = {
             buffer: Buffer.from(content),
-            filename: filenameRaw || 'recording.webm',
-            mimeType: contentTypeMatch?.[1]?.trim() || 'application/octet-stream',
+            filename: filenameRaw || "recording.webm",
+            mimeType:
+              contentTypeMatch?.[1]?.trim() || "application/octet-stream",
           };
         }
       } else {
-        fields[fieldName] = content.toString('utf8');
+        fields[fieldName] = content.toString("utf8");
       }
 
       searchFrom = nextBoundary;
@@ -132,16 +145,18 @@ export const parseMultipartBody = async (req: IncomingMessage): Promise<ParsedMu
     return { fields, file };
   })();
 
-export const parseJsonBody = async (req: IncomingMessage): Promise<Record<string, unknown>> => {
+export const parseJsonBody = async (
+  req: IncomingMessage,
+): Promise<Record<string, unknown>> => {
   const body = await readRequestBuffer(req);
   if (body.length === 0) {
     return {};
   }
 
   try {
-    return JSON.parse(body.toString('utf8')) as Record<string, unknown>;
+    return JSON.parse(body.toString("utf8")) as Record<string, unknown>;
   } catch {
-    throw new ApiError(400, 'Request body must be valid JSON.');
+    throw new ApiError(400, "Request body must be valid JSON.");
   }
 };
 
@@ -151,12 +166,14 @@ export const parseCookies = (req: IncomingMessage) => {
     return {} as Record<string, string>;
   }
 
-  return rawCookie.split(';').reduce<Record<string, string>>((cookies, pair) => {
-    const [rawName, ...valueParts] = pair.trim().split('=');
-    if (!rawName) {
+  return rawCookie
+    .split(";")
+    .reduce<Record<string, string>>((cookies, pair) => {
+      const [rawName, ...valueParts] = pair.trim().split("=");
+      if (!rawName) {
+        return cookies;
+      }
+      cookies[rawName] = decodeURIComponent(valueParts.join("="));
       return cookies;
-    }
-    cookies[rawName] = decodeURIComponent(valueParts.join('='));
-    return cookies;
-  }, {});
+    }, {});
 };

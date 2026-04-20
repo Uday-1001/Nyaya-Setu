@@ -1,43 +1,48 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { ApiError } from './utils/ApiError';
-import { parseJsonBody, parseMultipartBody, sendJson, setCors } from './server.shared';
-import { matchRoute } from './routes';
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { ApiError } from "./utils/ApiError";
+import {
+  parseJsonBody,
+  parseMultipartBody,
+  sendJson,
+  setCors,
+} from "./server.shared";
+import { matchRoute } from "./routes";
 
 export const app = async (req: IncomingMessage, res: ServerResponse) => {
   setCors(req, res);
 
-  if (req.method === 'OPTIONS') {
+  if (req.method === "OPTIONS") {
     res.statusCode = 204;
     res.end();
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/api/health') {
+  if (req.method === "GET" && req.url === "/api/health") {
     sendJson(res, 200, {
       success: true,
-      status: 'ok',
-      service: 'backend',
+      status: "ok",
+      service: "backend",
     });
     return;
   }
 
   try {
-    const requestUrl = new URL(req.url ?? '/', 'http://localhost');
-    const method = req.method ?? 'GET';
+    const requestUrl = new URL(req.url ?? "/", "http://localhost");
+    const method = req.method ?? "GET";
     const matchedRoute = matchRoute(method, requestUrl.pathname);
     const query = Object.fromEntries(requestUrl.searchParams.entries());
 
     if (!matchedRoute) {
-      throw new ApiError(404, 'Route not found.');
+      throw new ApiError(404, "Route not found.");
     }
 
     let body: Record<string, unknown> = {
       ...query,
       ...matchedRoute.params,
     };
-    if (method !== 'GET') {
-      const contentType = req.headers['content-type'] ?? '';
-      if (contentType.includes('multipart/form-data')) {
+    if (method !== "GET") {
+      const contentType = req.headers["content-type"] ?? "";
+      if (contentType.includes("multipart/form-data")) {
         const mp = await parseMultipartBody(req);
         body = {
           ...body,
@@ -62,7 +67,9 @@ export const app = async (req: IncomingMessage, res: ServerResponse) => {
   } catch (error) {
     const statusCode = error instanceof ApiError ? error.statusCode : 500;
     const message =
-      error instanceof Error ? error.message : 'Something went wrong on the server.';
+      error instanceof Error
+        ? error.message
+        : "Something went wrong on the server.";
 
     sendJson(res, statusCode, {
       success: false,
